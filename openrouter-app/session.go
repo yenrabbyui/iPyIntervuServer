@@ -66,34 +66,39 @@ func (m *sessionManager) create() (string, error) {
 	return payloadEncoded + "." + signature, nil
 }
 
-func (m *sessionManager) validate(token string) error {
+func (m *sessionManager) claimsFromToken(token string) (sessionClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
-		return errors.New("invalid session token")
+		return sessionClaims{}, errors.New("invalid session token")
 	}
 
 	mac := hmac.New(sha256.New, m.secret)
 	_, _ = mac.Write([]byte(parts[0]))
 	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
-		return errors.New("invalid session signature")
+		return sessionClaims{}, errors.New("invalid session signature")
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return fmt.Errorf("decode session payload: %w", err)
+		return sessionClaims{}, fmt.Errorf("decode session payload: %w", err)
 	}
 
 	var claims sessionClaims
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return fmt.Errorf("parse session payload: %w", err)
+		return sessionClaims{}, fmt.Errorf("parse session payload: %w", err)
 	}
 
 	if time.Now().Unix() > claims.ExpiresAt {
-		return errors.New("session expired")
+		return sessionClaims{}, errors.New("session expired")
 	}
 
-	return nil
+	return claims, nil
+}
+
+func (m *sessionManager) validate(token string) error {
+	_, err := m.claimsFromToken(token)
+	return err
 }
 
 func (m *sessionManager) setCookie(w http.ResponseWriter, r *http.Request, token string) {

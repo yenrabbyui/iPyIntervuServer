@@ -160,17 +160,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-#clear-btn {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-}
-
-#clear-btn:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--text);
-}
-
 .auth-gate {
   position: fixed;
   inset: 0;

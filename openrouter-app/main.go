@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"embed"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -35,6 +33,8 @@ func main() {
 		log.Fatalf("auth setup failed: %v", err)
 	}
 
+	agentStates := newAgentStateStore()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -54,7 +54,9 @@ func main() {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /api/auth/challenge", auth.handleChallenge)
 	mux.HandleFunc("POST /api/auth/verify", auth.handleVerify)
-	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey)))
+	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(apiKey, agentStates)))
+	mux.HandleFunc("GET /api/session/state", auth.requireSession(handleSessionState(agentStates)))
+	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey, agentStates)))
 	mux.Handle("GET /{$}", http.FileServer(http.FS(static)))
 	mux.Handle("GET /style.css", contentHandler(static, "style.css", "text/css; charset=utf-8"))
 	mux.Handle("GET /app.js", contentHandler(static, "app.js", "application/javascript"))
@@ -77,49 +79,6 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
-}
-
-func handleChat(apiKey string) http.HandlerFunc {
-	client := &http.Client{}
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-
-		upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, openRouterURL, bytes.NewReader(body))
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		upstream.Header.Set("Authorization", "Bearer "+apiKey)
-		upstream.Header.Set("Content-Type", "application/json")
-		if referer := os.Getenv("OPENROUTER_HTTP_REFERER"); referer != "" {
-			upstream.Header.Set("HTTP-Referer", referer)
-		}
-		if title := os.Getenv("OPENROUTER_APP_TITLE"); title != "" {
-			upstream.Header.Set("X-Title", title)
-		}
-
-		resp, err := client.Do(upstream)
-		if err != nil {
-			log.Printf("openrouter request failed: %v", err)
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		copyHeader(w.Header(), resp.Header)
-		w.WriteHeader(resp.StatusCode)
-		if _, err := io.Copy(w, resp.Body); err != nil {
-			log.Printf("streaming response failed: %v", err)
-		}
-	}
 }
 
 func contentHandler(static fs.FS, name, contentType string) http.Handler {

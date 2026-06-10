@@ -5,7 +5,6 @@ const chatForm = document.getElementById("chat-form");
 const promptEl = document.getElementById("prompt");
 const modelEl = document.getElementById("model");
 const sendBtn = document.getElementById("send-btn");
-const clearBtn = document.getElementById("clear-btn");
 const appEl = document.querySelector(".app");
 const authGateEl = document.getElementById("auth-gate");
 const authFormEl = document.getElementById("auth-form");
@@ -31,7 +30,6 @@ function setChatEnabled(enabled) {
   isAuthenticated = enabled;
   promptEl.disabled = !enabled;
   sendBtn.disabled = !enabled;
-  clearBtn.disabled = !enabled;
   modelEl.disabled = !enabled;
   appEl.classList.toggle("app-locked", !enabled);
 }
@@ -55,6 +53,16 @@ function hideAuthGate() {
   authErrorEl.textContent = "";
   authErrorEl.classList.add("hidden");
   setChatEnabled(true);
+}
+
+function setAuthStatus(message) {
+  if (message) {
+    authErrorEl.textContent = message;
+    authErrorEl.classList.remove("hidden");
+  } else {
+    authErrorEl.textContent = "";
+    authErrorEl.classList.add("hidden");
+  }
 }
 
 function pemToArrayBuffer(pem) {
@@ -124,6 +132,38 @@ async function authenticate(publicKeyPem) {
   }
 }
 
+async function bootstrapSession() {
+  const response = await fetch("/api/session/bootstrap", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: modelEl.value }),
+  });
+
+  if (response.status === 401) {
+    throw new Error("Authentication required.");
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Failed to initialize session.");
+  }
+
+  const data = await response.json();
+  conversation.length = 0;
+  conversation.push({ role: "user", content: "start", internal: true });
+  conversation.push({ role: "assistant", content: data.assistant || "" });
+  renderMessages();
+}
+
+async function completeAuthentication(publicKeyPem) {
+  await authenticate(publicKeyPem);
+  setAuthStatus("Initializing session...");
+  await bootstrapSession();
+  localStorage.setItem(STORAGE_KEY, publicKeyPem);
+  hideAuthGate();
+}
+
 async function initAuth() {
   setChatEnabled(false);
 
@@ -135,8 +175,8 @@ async function initAuth() {
   const storedKey = localStorage.getItem(STORAGE_KEY);
   if (storedKey) {
     try {
-      await authenticate(storedKey);
-      hideAuthGate();
+      showAuthGate("Restoring session...");
+      await completeAuthentication(storedKey);
       return;
     } catch {
       localStorage.removeItem(STORAGE_KEY);
@@ -158,6 +198,10 @@ function renderMessages() {
   }
 
   for (const message of conversation) {
+    if (message.internal) {
+      continue;
+    }
+
     const item = document.createElement("div");
     item.className = `message ${message.role}`;
     item.textContent = message.content;
@@ -298,9 +342,7 @@ authFormEl.addEventListener("submit", async (event) => {
   authSubmitBtn.disabled = true;
 
   try {
-    await authenticate(publicKey);
-    localStorage.setItem(STORAGE_KEY, publicKey);
-    hideAuthGate();
+    await completeAuthentication(publicKey);
     promptEl.focus();
   } catch (error) {
     showAuthGate(error.message || "Invalid public key or authentication failed.");
@@ -319,7 +361,6 @@ chatForm.addEventListener("submit", async (event) => {
 
   promptEl.value = "";
   sendBtn.disabled = true;
-  clearBtn.disabled = true;
 
   try {
     await sendMessage(text);
@@ -330,19 +371,9 @@ chatForm.addEventListener("submit", async (event) => {
   } finally {
     if (isAuthenticated) {
       sendBtn.disabled = false;
-      clearBtn.disabled = false;
       promptEl.focus();
     }
   }
-});
-
-clearBtn.addEventListener("click", () => {
-  if (!isAuthenticated) {
-    return;
-  }
-  conversation.length = 0;
-  renderMessages();
-  promptEl.focus();
 });
 
 renderMessages();
