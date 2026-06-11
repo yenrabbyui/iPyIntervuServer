@@ -31,7 +31,7 @@ const BOOTSTRAP_TURN_ID = "ipyintervu-bootstrap";
 const CHAT_MODEL = "deepseek/deepseek-v4-flash";
 const TURN_ID_HEADER = "X-Turn-Id";
 const PROMPT_PLACEHOLDER_IDLE = "Tell me your answer.";
-const PROMPT_PLACEHOLDER_WORKING_BASE = "working for you";
+const PROMPT_PLACEHOLDER_WORKING_BASE = "considering your response";
 const AUTH_LOGGING_IN_BASE = "Logging you in";
 const DOT_ANIMATION_INTERVAL_MS = 600;
 
