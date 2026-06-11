@@ -47,10 +47,13 @@ type AgentSessionState struct {
 	BugAssessmentBucket          string   `json:"bugAssessmentBucket,omitempty"`
 	ModesCompleted               []string `json:"modesCompleted,omitempty"`
 	CoachingRequested            bool     `json:"coachingRequested"`
+	CoachingEnteredBeforeResults bool     `json:"coachingEnteredBeforeResults"`
 
 	// Tier C — results
-	FinalRating          string `json:"finalRating,omitempty"`
-	AssessmentComplete   bool   `json:"assessmentComplete"`
+	FinalRating            string     `json:"finalRating,omitempty"`
+	AssessmentComplete     bool       `json:"assessmentComplete"`
+	AssessmentStartTime    *time.Time `json:"assessmentStartTime,omitempty"`
+	AssessmentEndTime      *time.Time `json:"assessmentEndTime,omitempty"`
 
 	// Tier D — operational tracking
 	MessageIndex         int      `json:"messageIndex"`
@@ -76,7 +79,7 @@ func (s *AgentSessionState) isProblemDecompositionWeek() bool {
 }
 
 func (s *AgentSessionState) snapshotForPrompt() map[string]any {
-	return map[string]any{
+	snap := map[string]any{
 		"conversationPhase":          s.ConversationPhase,
 		"startupPromptShown":         s.StartupPromptShown,
 		"firstUserMessageSeen":       s.FirstUserMessageSeen,
@@ -92,11 +95,22 @@ func (s *AgentSessionState) snapshotForPrompt() map[string]any {
 		"bugAssessmentBucket":        s.BugAssessmentBucket,
 		"modesCompleted":             s.ModesCompleted,
 		"coachingRequested":          s.CoachingRequested,
+		"coachingEnteredBeforeResults": s.CoachingEnteredBeforeResults,
 		"finalRating":                s.FinalRating,
 		"assessmentComplete":         s.AssessmentComplete,
+		"assessmentStartTime":        s.AssessmentStartTime,
+		"assessmentEndTime":          s.AssessmentEndTime,
 		"messageIndex":               s.MessageIndex,
 		"instructionBundleId":        s.InstructionBundleID,
 		"promptVersion":              s.PromptVersion,
 		"modeTransitionPolicy":       "Server enforces automatic mode transitions after bucket assignment; do not ask the user to choose the next assessment mode.",
 	}
+	if s.CurrentWeekNumber > 0 && (s.ConversationPhase == phaseAssessmentInProgress || s.ConversationPhase == phaseAssessmentResults) {
+		snap["assessmentWeekScope"] = assessmentWeekScopeSnapshot(s.CurrentWeekNumber)
+	}
+	if s.ConversationPhase == phaseAssessmentResults || s.AssessmentComplete {
+		snap["allowedRatingLabels"] = []string{bucketNotReady, bucketCompetent, bucketExceptional, bucketNA}
+		snap["resultsPresentationRule"] = "In AssessmentResults output, use conceptualAssessmentBucket, codeAssessmentBucket, bugAssessmentBucket, and finalRating exactly as shown in server state. Allowed labels only: Not Ready Yet, Competent, Exceptional, N/A. Never use Strong, Good, Solid, Excellent, or other synonyms."
+	}
+	return snap
 }

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +9,15 @@ import (
 )
 
 const bootstrapStartMessage = "start"
+const defaultChatModel = "deepseek/deepseek-v4-flash"
+
+func resolveChatModel(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return defaultChatModel
+	}
+	return model
+}
 
 type chatCompletionRequest struct {
 	Model    string        `json:"model"`
@@ -83,9 +90,7 @@ func openRouterHeaders(req *http.Request, apiKey string) {
 	}
 }
 
-func handleBootstrap(apiKey string, states *agentStateStore) http.HandlerFunc {
-	client := &http.Client{}
-
+func handleBootstrap(apiKey string, states *agentStateStore, turns *turnStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID, ok := sessionIDFromContext(r.Context())
 		if !ok {
@@ -96,62 +101,77 @@ func handleBootstrap(apiKey string, states *agentStateStore) http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
 
 		var req bootstrapRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Model == "" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
+		}
+		model := resolveChatModel(req.Model)
+
+		turnID := strings.TrimSpace(r.Header.Get(turnIDHeader))
+		if turnID == bootstrapTurnID {
+			if assistant, ok := turns.getBootstrapAssistant(sessionID); ok {
+				writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
+				return
+			}
+			if !turns.beginBootstrap(sessionID) {
+				assistant, err := turns.waitBootstrap(r.Context(), sessionID)
+				if err != nil {
+					http.Error(w, "upstream error", http.StatusBadGateway)
+					return
+				}
+				writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
+				return
+			}
 		}
 
 		state := states.getOrCreate(sessionID)
 		prompt, _, _, err := buildSystemPrompt(state)
 		if err != nil {
+			if turnID == bootstrapTurnID {
+				turns.cancelBootstrap(sessionID)
+			}
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
 		payload, err := json.Marshal(chatCompletionRequest{
-			Model: req.Model,
+			Model: model,
 			Messages: []chatMessage{
 				{Role: "system", Content: prompt},
 				{Role: "user", Content: bootstrapStartMessage},
 			},
 		})
 		if err != nil {
+			if turnID == bootstrapTurnID {
+				turns.cancelBootstrap(sessionID)
+			}
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		upstream, err := http.NewRequestWithContext(
-			r.Context(),
-			http.MethodPost,
-			openRouterURL,
-			bytes.NewReader(payload),
-		)
+		body, statusCode, err := readOpenRouterBodyWithRetry(r.Context(), apiKey, payload, newOpenRouterLogCtx(sessionID, turnID, "bootstrap", 0))
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		openRouterHeaders(upstream, apiKey)
-
-		resp, err := client.Do(upstream)
-		if err != nil {
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		if err != nil {
+			log.Printf("[openrouter] bootstrap_failed session=%s turn_id=%s err=%q", truncateSessionID(sessionID), truncateTurnID(turnID), err.Error())
+			if turnID == bootstrapTurnID {
+				turns.cancelBootstrap(sessionID)
+			}
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			http.Error(w, string(body), resp.StatusCode)
+		if statusCode != http.StatusOK {
+			if turnID == bootstrapTurnID {
+				turns.cancelBootstrap(sessionID)
+			}
+			http.Error(w, string(body), statusCode)
 			return
 		}
 
 		var completion openRouterCompletion
 		if err := json.Unmarshal(body, &completion); err != nil {
+			if turnID == bootstrapTurnID {
+				turns.cancelBootstrap(sessionID)
+			}
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return
 		}
@@ -161,92 +181,27 @@ func handleBootstrap(apiKey string, states *agentStateStore) http.HandlerFunc {
 			assistant = completion.Choices[0].Message.Content
 		}
 
+		assistant = stripIPyIntervuTail(assistant)
 		applyBootstrapState(state, assistant)
 		states.set(sessionID, state)
+
+		if turnID == bootstrapTurnID {
+			turns.setBootstrapAssistant(sessionID, assistant)
+		}
 
 		writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
 	}
 }
 
-func handleChat(apiKey string, states *agentStateStore) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sessionID, ok := sessionIDFromContext(r.Context())
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-
-		var req chatCompletionRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-
-		state := states.getOrCreate(sessionID)
-		userMessage := lastUserMessage(req.Messages)
-		applyPreChatUserUpdate(state, userMessage)
-
-		prompt, _, _, err := buildSystemPrompt(state)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		payload, err := prependSystemPrompt(body, prompt)
-		if err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-
-		upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, openRouterURL, bytes.NewReader(payload))
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		openRouterHeaders(upstream, apiKey)
-
-		resp, err := (&http.Client{}).Do(upstream)
-		if err != nil {
-			log.Printf("openrouter request failed: %v", err)
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		contentType := resp.Header.Get("Content-Type")
-		if req.Stream && strings.Contains(contentType, "text/event-stream") {
-			copyHeader(w.Header(), resp.Header)
-			w.WriteHeader(resp.StatusCode)
-			assistant, streamErr := relaySSEAndCollect(w, resp.Body)
-			if streamErr != nil {
-				log.Printf("streaming response failed: %v", streamErr)
-			}
-			applyPostChatStateUpdate(state, userMessage, assistant)
-			states.set(sessionID, state)
-			return
-		}
-
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		if err != nil {
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-
-		assistant := extractAssistantContent(respBody)
-		applyPostChatStateUpdate(state, userMessage, assistant)
-		states.set(sessionID, state)
-
-		copyHeader(w.Header(), resp.Header)
-		w.WriteHeader(resp.StatusCode)
-		_, _ = w.Write(respBody)
+func prependSystemMessage(messages []chatMessage, prompt string) []chatMessage {
+	system := chatMessage{Role: "system", Content: prompt}
+	if len(messages) > 0 && messages[0].Role == "system" {
+		out := make([]chatMessage, len(messages))
+		copy(out, messages)
+		out[0] = system
+		return out
 	}
+	return append([]chatMessage{system}, messages...)
 }
 
 func extractAssistantContent(body []byte) string {
@@ -258,39 +213,6 @@ func extractAssistantContent(body []byte) string {
 		return ""
 	}
 	return completion.Choices[0].Message.Content
-}
-
-func relaySSEAndCollect(dst io.Writer, src io.Reader) (string, error) {
-	var assistant strings.Builder
-	buf := make([]byte, 32*1024)
-	remainder := ""
-
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			chunk := remainder + string(buf[:n])
-			parts := strings.Split(chunk, "\n\n")
-			remainder = parts[len(parts)-1]
-			for _, part := range parts[:len(parts)-1] {
-				if _, writeErr := dst.Write([]byte(part + "\n\n")); writeErr != nil {
-					return assistant.String(), writeErr
-				}
-				assistant.WriteString(parseSSEAssistantDelta(part))
-			}
-		}
-		if err != nil {
-			if remainder != "" {
-				if _, writeErr := dst.Write([]byte(remainder)); writeErr != nil {
-					return assistant.String(), writeErr
-				}
-				assistant.WriteString(parseSSEAssistantDelta(remainder))
-			}
-			if err == io.EOF {
-				return assistant.String(), nil
-			}
-			return assistant.String(), err
-		}
-	}
 }
 
 func parseSSEAssistantDelta(part string) string {

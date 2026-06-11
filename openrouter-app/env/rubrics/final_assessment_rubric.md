@@ -120,7 +120,7 @@ All three assessment modes rated the student as Exceptional. The student shows o
 - There is no aggregation across multiple key concepts; each concept receives its own final rating using these rules.
 - Mode-specific buckets should themselves be derived from the appropriate weekly rubric (week{N}_rubric.jsonld) based on currentWeekNumber in week{N}_key_concepts.md.
 - The conservative ordering ensures that Not Ready Yet in any mode dominates, Competent is the middle ground when there are no Not Ready Yet flags and at least one Competent, and Exceptional is reserved for the rare case where all three modes rate the student as Exceptional.
-- SPECIAL CASE - Problem Decomposition: When currentConcept is "Problem Decomposition", only conceptualAssessmentBucket is available (Code and Bug modes are skipped per ex:ProblemDecompositionFlow). Set finalRating = conceptualAssessmentBucket; codeAssessmentBucket and bugAssessmentBucket are N/A.
+- SPECIAL CASE - Week 1 Problem Decomposition: Only conceptualAssessmentBucket is graded. Set finalRating = conceptualAssessmentBucket (must be exactly **Not Ready Yet**, **Competent**, or **Exceptional**). Report codeAssessmentBucket and bugAssessmentBucket as **N/A**. Never report Strong, Good, or other synonyms in user-facing results.
 
 ## Assessment Evidence Dimensions
 

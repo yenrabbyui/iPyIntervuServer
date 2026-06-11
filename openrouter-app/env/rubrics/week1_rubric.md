@@ -1,20 +1,31 @@
-# Week 1 Assessment Rubric
+# Week 1 Assessment Rubric — Problem Decomposition
 
-*Applicable answer types: Conceptual Answer only.*
+*Conceptual assessment only. Code and bug modes are N/A for Week 1.*
 
-## Not Yet Ready
+## Allowed rating labels (user-facing and `_ipyintervu` sync)
 
-### Conceptual Answer
+Use **exactly one** of these strings — no synonyms:
 
-- significant factual errors about variables, types, or I/O
-- overly vague or simplistic
-- fundamental misunderstanding of type casting or input()
-- cannot articulate when to use int(), float(), or str()
-- confuses data types or expression evaluation
+- **Not Ready Yet**
+- **Competent**
+- **Exceptional**
+
+Do **not** use Strong, Good, Solid, Looking Good, Looks Great, Excellent, or similar words as ratings.
+
+For Week 1, `conceptualAssessmentBucket` is the only graded mode. Server sets `finalRating` equal to `conceptualAssessmentBucket`.
+
+## Not Ready Yet
+
+### Conceptual Answer (problem decomposition)
+
+- Cannot identify meaningful input, process, and output for the task
+- Overly vague (e.g. "do the lab and write stuff down") with no clear steps
+- Skips major parts of the decomposition or confuses input vs output
+- Fundamental misunderstanding of what decomposition means
 
 ### Example
 
-**Rating:** Not Yet Ready
+**Rating:** Not Ready Yet
 
 You do the lab and write stuff down.
 
@@ -23,18 +34,16 @@ You do the lab and write stuff down.
 - does not identify input (materials, equipment)
 - does not identify process (steps)
 - does not identify output (results, observations)
-- overly vague - no clear decomposition
+- overly vague — no clear decomposition
 
 ## Competent
 
-### Conceptual Answer
+### Conceptual Answer (problem decomposition)
 
-- factually correct
-- covers main points (variables, types, input, output)
-- can describe when to use type casting
-- can describe formatted strings or string methods
-- solid and accurate
-- may lack depth on edge cases or best practices
+- Correctly identifies input, process, and output for the task
+- Process has clear, ordered steps
+- Factually sound for the student's major context
+- May lack depth on edge cases, alternatives, or why decomposition helps
 
 ### Example
 
@@ -44,73 +53,35 @@ Input: prepared slides, microscope, specimen. Process: place slide on stage, foc
 
 **Strengths:**
 
-- identifies input (materials, equipment)
-- identifies process (clear steps)
-- identifies output (lab notes)
-- covers main points - solid decomposition
+- identifies input, process, and output
+- clear steps in process
+- solid decomposition for the task
 
 ## Exceptional
 
-### Conceptual Answer
+### Conceptual Answer (problem decomposition)
 
-- correct, clear, comprehensive
-- concrete examples
-- connects to problem decomposition
-- may discuss edge cases or best practices
-- meaningful variable names
-- when to use str() for output
+- Clear, thorough input / process / output decomposition
+- Logical, ordered process steps with concrete detail
+- Explains why decomposition helps (clarity, reproducibility, catching missed steps)
+- May discuss edge cases, alternatives considered, or how a partner would follow the plan
 
 ### Example
 
 **Rating:** Exceptional
 
-Input: prepared slides, microscope, specimen, lab notebook. Process: (1) place slide on stage and secure, (2) start with lowest magnification to locate specimen, (3) switch to higher magnification for detail, (4) adjust focus as needed, (5) record observations with labels and timestamps. Output: lab notes with clear observations, annotated if needed. The input-process-output structure helps ensure nothing is missed and results are reproducible.
+Input: prepared slides, microscope, specimen, lab notebook. Process: (1) place slide on stage and secure, (2) start with lowest magnification to locate specimen, (3) switch to higher magnification for detail, (4) adjust focus as needed, (5) record observations with labels and timestamps. Output: lab notes with clear observations, annotated if needed. Breaking the work into input, process, and output ensures nothing is missed and results are reproducible.
 
 **Strengths:**
 
-- clear identification of input, process, output
-- logical, ordered steps in process
-- connects to reproducibility
-- concrete and thorough
+- complete input, process, output
+- ordered, actionable process steps
+- connects decomposition to reproducibility and clarity
 
-## Code Answer Integrated Dimensions
-
-### Decomposition
+## Overall Guidance (Week 1)
 
 | Level | Guidance |
 | --- | --- |
-| Not Ready Yet | Cannot break problem into meaningful parts or gives no rationale |
-| Competent | Breaks problem into reasonable parts with some justification |
-| Exceptional | Clear, well-structured decomposition with strong justification and awareness of alternatives |
-
-### Implementation Correctness
-
-| Level | Guidance |
-| --- | --- |
-| Not Ready Yet | Code does not run or fails core requirements |
-| Competent | Code runs and solves main problem with minor issues |
-| Exceptional | Code is correct, robust, and handles edge cases appropriately |
-
-### Code Understanding
-
-| Level | Guidance |
-| --- | --- |
-| Not Ready Yet | Cannot explain key lines or logic |
-| Competent | Can explain general flow and most lines |
-| Exceptional | Can clearly explain specific lines, control flow, and data transformations |
-
-### AI Use Reasoning
-
-| Level | Guidance |
-| --- | --- |
-| Not Ready Yet | Cannot describe how AI was used or relies blindly on output |
-| Competent | Describes basic AI use and some verification |
-| Exceptional | Demonstrates intentional AI use, validation, and thoughtful modification |
-
-## Overall Guidance
-
-| Level | Guidance |
-| --- | --- |
-| Not Ready Yet | Weakness in multiple dimensions or major gap in understanding |
-| Competent | Solid correctness with reasonable understanding and decomposition |
-| Exceptional | Strong across all dimensions including deep understanding and intentional AI use |
+| Not Ready Yet | Cannot decompose the task into meaningful input, process, and output |
+| Competent | Solid decomposition with clear input, process, and output |
+| Exceptional | Thorough decomposition plus clear rationale for why the structure helps |

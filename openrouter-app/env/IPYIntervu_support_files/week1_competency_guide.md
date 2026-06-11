@@ -15,3 +15,7 @@ Example for Biology major: Decompose a lab procedure. Input: prepared slides, mi
 ## Connection to AI Tools
 
 Practice decomposition with Pythonista2. No code or programming in Week 1.
+
+## Assessment ratings (Week 1)
+
+When reporting results, use only **Not Ready Yet**, **Competent**, or **Exceptional** for the conceptual assessment and overall rating. Do not use Strong, Good, or similar labels.

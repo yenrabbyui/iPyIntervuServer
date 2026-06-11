@@ -9,3 +9,8 @@
 - data processing using lists
 - data analysis using lists
 - formatted output
+
+## Assessment scope
+
+- **Allowed:** Weeks 1–9 plus file I/O and combining lists/dicts with files.
+- **Forbidden:** concepts from weeks after Week 10 (none in this syllabus).

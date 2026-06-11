@@ -3,17 +3,40 @@ const STORAGE_KEY = "ipyintervu_public_key";
 const messagesEl = document.getElementById("messages");
 const chatForm = document.getElementById("chat-form");
 const promptEl = document.getElementById("prompt");
-const modelEl = document.getElementById("model");
 const sendBtn = document.getElementById("send-btn");
 const appEl = document.querySelector(".app");
 const authGateEl = document.getElementById("auth-gate");
 const authFormEl = document.getElementById("auth-form");
+const authLoggingInEl = document.getElementById("auth-logging-in");
+const authLoggingInTitleEl = document.getElementById("auth-logging-in-title");
 const publicKeyInputEl = document.getElementById("public-key-input");
 const authErrorEl = document.getElementById("auth-error");
 const authSubmitBtn = document.getElementById("auth-submit-btn");
+const assessmentTimesEl = document.getElementById("assessment-times");
+const assessmentStartEl = document.getElementById("assessment-start-time");
+const assessmentEndEl = document.getElementById("assessment-end-time");
+const earlyCoachingBannerEl = document.getElementById("early-coaching-banner");
 
 const conversation = [];
 let isAuthenticated = false;
+let activeChatAbort = null;
+let chatInFlight = false;
+
+const MAX_USER_MESSAGE_CHARS = 5000;
+const MAX_CHAT_RETRIES = 20;
+const CHAT_RETRY_DELAY_MS = 1500;
+const MAX_STREAM_RECOVERY_ATTEMPTS = 4;
+const STREAM_READ_TIMEOUT_MS = 120_000;
+const BOOTSTRAP_TURN_ID = "ipyintervu-bootstrap";
+const CHAT_MODEL = "deepseek/deepseek-v4-flash";
+const TURN_ID_HEADER = "X-Turn-Id";
+const PROMPT_PLACEHOLDER_IDLE = "Tell me your answer.";
+const PROMPT_PLACEHOLDER_WORKING_BASE = "working for you";
+const AUTH_LOGGING_IN_BASE = "Logging you in";
+const DOT_ANIMATION_INTERVAL_MS = 600;
+
+const workingPlaceholderAnimation = { timer: null, phase: 0 };
+const loggingInAnimation = { timer: null, phase: 0 };
 
 const INSECURE_CONTEXT_MESSAGE =
   "Authentication requires HTTPS or localhost. Browsers block encryption on plain HTTP to remote hosts. Use https://, open http://127.0.0.1/ on the server, or use an SSH tunnel.";
@@ -28,15 +51,213 @@ function normalizePublicKey(pem) {
 
 function setChatEnabled(enabled) {
   isAuthenticated = enabled;
-  promptEl.disabled = !enabled;
-  sendBtn.disabled = !enabled;
-  modelEl.disabled = !enabled;
   appEl.classList.toggle("app-locked", !enabled);
+  if (enabled) {
+    ensureComposerActive();
+  } else {
+    stopWorkingPlaceholder();
+    promptEl.disabled = true;
+    sendBtn.disabled = true;
+  }
 }
 
-function showAuthGate(message = "") {
+function ensureComposerActive() {
+  if (!isAuthenticated) {
+    return;
+  }
+  promptEl.disabled = false;
+  sendBtn.disabled = false;
+}
+
+function dotAnimationText(base, phase) {
+  return base + (phase === 0 ? "" : ".".repeat(phase));
+}
+
+function startDotTextAnimation(animation, baseText, setText) {
+  stopDotTextAnimation(animation);
+  animation.phase = 0;
+  setText(dotAnimationText(baseText, 0));
+  animation.timer = setInterval(() => {
+    animation.phase = (animation.phase + 1) % 4;
+    setText(dotAnimationText(baseText, animation.phase));
+  }, DOT_ANIMATION_INTERVAL_MS);
+}
+
+function stopDotTextAnimation(animation, reset) {
+  if (animation.timer !== null) {
+    clearInterval(animation.timer);
+    animation.timer = null;
+  }
+  animation.phase = 0;
+  if (reset) {
+    reset();
+  }
+}
+
+function setPromptPlaceholderIdle() {
+  promptEl.placeholder = PROMPT_PLACEHOLDER_IDLE;
+}
+
+function renderWorkingPlaceholder(text) {
+  promptEl.placeholder = text;
+}
+
+function startWorkingPlaceholder() {
+  stopWorkingPlaceholder();
+  startDotTextAnimation(
+    workingPlaceholderAnimation,
+    PROMPT_PLACEHOLDER_WORKING_BASE,
+    renderWorkingPlaceholder
+  );
+}
+
+function stopWorkingPlaceholder() {
+  stopDotTextAnimation(workingPlaceholderAnimation, () => {
+    if (isAuthenticated) {
+      setPromptPlaceholderIdle();
+    }
+  });
+}
+
+function startLoggingInAnimation() {
+  stopLoggingInAnimation();
+  startDotTextAnimation(loggingInAnimation, AUTH_LOGGING_IN_BASE, (text) => {
+    authLoggingInTitleEl.textContent = text;
+  });
+}
+
+function stopLoggingInAnimation() {
+  stopDotTextAnimation(loggingInAnimation, () => {
+    authLoggingInTitleEl.textContent = AUTH_LOGGING_IN_BASE;
+  });
+}
+
+function assistantHasContent() {
+  const last = conversation[conversation.length - 1];
+  return last?.role === "assistant" && last.content.trim().length > 0;
+}
+
+let activeRecoveryTurnId = null;
+let activeRecoveryPromise = null;
+
+function scheduleChatTurnRecovery(turnId) {
+  if (activeRecoveryTurnId === turnId && activeRecoveryPromise) {
+    return activeRecoveryPromise;
+  }
+
+  activeRecoveryTurnId = turnId;
+  activeRecoveryPromise = recoverChatTurn(turnId)
+    .catch((error) => {
+      if (error?.message === "Authentication required.") {
+        throw error;
+      }
+    })
+    .finally(() => {
+      stopWorkingPlaceholder();
+      ensureComposerActive();
+      if (activeRecoveryTurnId === turnId) {
+        activeRecoveryTurnId = null;
+        activeRecoveryPromise = null;
+      }
+    });
+  return activeRecoveryPromise;
+}
+
+async function recoverChatTurn(turnId) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= MAX_CHAT_RETRIES; attempt++) {
+    try {
+      await executeChatStream({
+        turnId,
+        resetAssistant: true,
+        silentReplay: true,
+        replaceContent: true,
+      });
+      refreshSessionState().catch(() => {});
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error.message === "Authentication required.") {
+        throw error;
+      }
+      if (assistantHasContent()) {
+        refreshSessionState().catch(() => {});
+        return;
+      }
+      if (!isRetryableChatError(error) || attempt === MAX_CHAT_RETRIES) {
+        break;
+      }
+      await sleep(CHAT_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+
+  for (let recovery = 0; recovery <= MAX_STREAM_RECOVERY_ATTEMPTS; recovery++) {
+    try {
+      await executeChatStream({
+        turnId,
+        resetAssistant: true,
+        silentReplay: true,
+        replaceContent: true,
+      });
+      refreshSessionState().catch(() => {});
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error.message === "Authentication required.") {
+        throw error;
+      }
+      if (assistantHasContent()) {
+        refreshSessionState().catch(() => {});
+        return;
+      }
+      if (!isRetryableChatError(error) || recovery === MAX_STREAM_RECOVERY_ATTEMPTS) {
+        break;
+      }
+      await sleep(1500 * (recovery + 1));
+    }
+  }
+
+  const last = conversation[conversation.length - 1];
+  if (last?.role === "assistant" && !last.content.trim()) {
+    conversation.pop();
+    renderMessages();
+  }
+  if (!assistantHasContent()) {
+    showError(formatUserFacingError(lastError || new Error("Something went wrong.")));
+  }
+}
+
+function getStoredPublicKey() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  const normalized = normalizePublicKey(raw);
+  if (!normalized.includes("BEGIN PUBLIC KEY")) {
+    return null;
+  }
+  return normalized;
+}
+
+function showAuthLoggingIn() {
   authGateEl.classList.remove("hidden");
   authGateEl.setAttribute("aria-hidden", "false");
+  authLoggingInEl.classList.remove("hidden");
+  authFormEl.classList.add("hidden");
+  authErrorEl.textContent = "";
+  authErrorEl.classList.add("hidden");
+  setChatEnabled(false);
+  renderSessionChrome(null);
+  startLoggingInAnimation();
+}
+
+function showAuthLoginForm(message = "") {
+  authGateEl.classList.remove("hidden");
+  authGateEl.setAttribute("aria-hidden", "false");
+  authLoggingInEl.classList.add("hidden");
+  stopLoggingInAnimation();
+  authFormEl.classList.remove("hidden");
   if (message) {
     authErrorEl.textContent = message;
     authErrorEl.classList.remove("hidden");
@@ -45,9 +266,11 @@ function showAuthGate(message = "") {
     authErrorEl.classList.add("hidden");
   }
   setChatEnabled(false);
+  renderSessionChrome(null);
 }
 
 function hideAuthGate() {
+  stopLoggingInAnimation();
   authGateEl.classList.add("hidden");
   authGateEl.setAttribute("aria-hidden", "true");
   authErrorEl.textContent = "";
@@ -108,6 +331,76 @@ async function encryptChallenge(publicKeyPem, nonceBase64) {
   return bufferToBase64(ciphertext);
 }
 
+function formatAssessmentTime(isoString) {
+  if (!isoString) {
+    return "";
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+}
+
+function renderAssessmentTimes(state) {
+  const start = state?.assessmentStartTime;
+  const end = state?.assessmentEndTime;
+
+  if (!start) {
+    assessmentTimesEl.classList.add("hidden");
+    assessmentStartEl.textContent = "";
+    assessmentEndEl.textContent = "";
+    assessmentEndEl.classList.add("hidden");
+    return;
+  }
+
+  assessmentTimesEl.classList.remove("hidden");
+  assessmentStartEl.textContent = `Start: ${formatAssessmentTime(start)}`;
+
+  if (end) {
+    assessmentEndEl.textContent = `End: ${formatAssessmentTime(end)}`;
+    assessmentEndEl.classList.remove("hidden");
+  } else {
+    assessmentEndEl.textContent = "";
+    assessmentEndEl.classList.add("hidden");
+  }
+}
+
+function renderEarlyCoachingBanner(state) {
+  const enteredBeforeResults = state?.coachingEnteredBeforeResults === true;
+  const resultsShown =
+    state?.conversationPhase === "AssessmentResults" || state?.assessmentComplete === true;
+  const show = enteredBeforeResults && !resultsShown;
+
+  if (show) {
+    earlyCoachingBannerEl.classList.remove("hidden");
+  } else {
+    earlyCoachingBannerEl.classList.add("hidden");
+  }
+}
+
+function renderSessionChrome(state) {
+  renderAssessmentTimes(state);
+  renderEarlyCoachingBanner(state);
+}
+
+async function refreshSessionState() {
+  if (!isAuthenticated) {
+    return;
+  }
+
+  const response = await fetch("/api/session/state", { credentials: "include" });
+  if (response.status === 401) {
+    return;
+  }
+  if (!response.ok) {
+    return;
+  }
+
+  const state = await response.json();
+  renderSessionChrome(state);
+}
+
 async function authenticate(publicKeyPem) {
   const challengeResponse = await fetch("/api/auth/challenge", { credentials: "include" });
   if (!challengeResponse.ok) {
@@ -136,8 +429,11 @@ async function bootstrapSession() {
   const response = await fetch("/api/session/bootstrap", {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: modelEl.value }),
+    headers: {
+      "Content-Type": "application/json",
+      [TURN_ID_HEADER]: BOOTSTRAP_TURN_ID,
+    },
+    body: JSON.stringify({ model: CHAT_MODEL }),
   });
 
   if (response.status === 401) {
@@ -154,6 +450,7 @@ async function bootstrapSession() {
   conversation.push({ role: "user", content: "start", internal: true });
   conversation.push({ role: "assistant", content: data.assistant || "" });
   renderMessages();
+  await refreshSessionState();
 }
 
 async function completeAuthentication(publicKeyPem) {
@@ -162,28 +459,76 @@ async function completeAuthentication(publicKeyPem) {
   await bootstrapSession();
   localStorage.setItem(STORAGE_KEY, publicKeyPem);
   hideAuthGate();
+  await refreshSessionState();
 }
 
 async function initAuth() {
   setChatEnabled(false);
 
   if (!hasSecureCrypto()) {
-    showAuthGate(INSECURE_CONTEXT_MESSAGE);
+    showAuthLoginForm(INSECURE_CONTEXT_MESSAGE);
     return;
   }
 
-  const storedKey = localStorage.getItem(STORAGE_KEY);
+  const storedKey = getStoredPublicKey();
   if (storedKey) {
+    showAuthLoggingIn();
     try {
-      showAuthGate("Restoring session...");
       await completeAuthentication(storedKey);
       return;
     } catch {
       localStorage.removeItem(STORAGE_KEY);
+      showAuthLoginForm();
+      return;
     }
   }
 
-  showAuthGate();
+  showAuthLoginForm();
+}
+
+function initMarkdown() {
+  if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+    return;
+  }
+  marked.setOptions({
+    gfm: true,
+    breaks: true,
+  });
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "A") {
+      node.setAttribute("rel", "noopener noreferrer");
+      node.setAttribute("target", "_blank");
+    }
+  });
+}
+
+const completeIPyFencePattern = /```(?:json)?\s*_ipy(?:intervu)?\s*\n[\s\S]*?\n```/gi;
+const partialIPyFencePattern = /```(?:json\s*)?(?:_ipy(?:intervu)?[\s\S]*)$/i;
+
+function stripClientVisibleAssistantContent(content) {
+  if (!content) {
+    return "";
+  }
+  let stripped = content.replace(completeIPyFencePattern, "");
+  const partialMatch = stripped.match(partialIPyFencePattern);
+  if (partialMatch) {
+    const matched = partialMatch[0];
+    if ((matched.match(/```/g) || []).length < 2) {
+      stripped = stripped.slice(0, stripped.length - matched.length);
+    }
+  }
+  return stripped.replace(/[ \t\r\n]+$/, "");
+}
+
+function renderAssistantMarkdown(content) {
+  const visible = stripClientVisibleAssistantContent(content);
+  if (!visible) {
+    return "";
+  }
+  if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+    return visible;
+  }
+  return DOMPurify.sanitize(marked.parse(visible), { USE_PROFILES: { html: true } });
 }
 
 function renderMessages() {
@@ -204,26 +549,79 @@ function renderMessages() {
 
     const item = document.createElement("div");
     item.className = `message ${message.role}`;
-    item.textContent = message.content;
+
+    if (message.role === "assistant") {
+      const body = document.createElement("div");
+      body.className = "markdown-body";
+      body.innerHTML = renderAssistantMarkdown(message.content);
+      item.appendChild(body);
+    } else {
+      item.textContent = message.content;
+    }
+
     messagesEl.appendChild(item);
   }
 
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function appendAssistantDelta(delta) {
+function appendAssistantDelta(delta, { deferRender = false } = {}) {
   const last = conversation[conversation.length - 1];
   if (!last || last.role !== "assistant") {
     conversation.push({ role: "assistant", content: delta });
   } else {
     last.content += delta;
   }
-  renderMessages();
+  if (!deferRender) {
+    renderMessages();
+  }
 }
 
 function showError(text) {
   conversation.push({ role: "error", content: text });
   renderMessages();
+}
+
+function formatUserFacingError(error) {
+  const message = error?.message || "";
+  const lowered = message.toLowerCase();
+
+  if (isRetryableNetworkError(error)) {
+    return (
+      "Connection lost while waiting for a response. " +
+      "Your reply may have been cut off—try sending again. " +
+      "If this keeps happening, wait a moment and refresh the page."
+    );
+  }
+
+  return message || "Something went wrong.";
+}
+
+function isRetryableNetworkError(error) {
+  const message = error?.message || "";
+  const lowered = message.toLowerCase();
+
+  return (
+    error?.name === "TimeoutError" ||
+    lowered === "load failed" ||
+    lowered === "failed to fetch" ||
+    lowered.includes("networkerror") ||
+    lowered.includes("stream read timed out") ||
+    (error instanceof TypeError && lowered.includes("fetch"))
+  );
+}
+
+function isRetryableChatError(error) {
+  if (isRetryableNetworkError(error)) {
+    return true;
+  }
+
+  const message = (error?.message || "").toLowerCase();
+  return message.includes("upstream error") || message.includes("bad gateway");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseSSEChunk(chunk, onDelta) {
@@ -253,80 +651,210 @@ function parseSSEChunk(chunk, onDelta) {
   }
 }
 
+function chatPayloadMessages() {
+  return conversation
+    .filter(
+      (message) =>
+        message.role === "user" ||
+        (message.role === "assistant" && message.content.trim() !== "")
+    )
+    .map(({ role, content }) => ({
+      role,
+      content:
+        role === "assistant" ? stripClientVisibleAssistantContent(content) : content,
+    }));
+}
+
+async function executeChatStream({
+  turnId,
+  resetAssistant,
+  silentReplay = false,
+  replaceContent = false,
+}) {
+  if (activeChatAbort) {
+    activeChatAbort.abort();
+  }
+
+  const controller = new AbortController();
+  activeChatAbort = controller;
+  const timeoutId = setTimeout(() => {
+    controller.abort(new DOMException("Stream read timed out", "TimeoutError"));
+  }, STREAM_READ_TIMEOUT_MS);
+
+  let deferRender = false;
+  let streamBuffer = replaceContent ? "" : null;
+
+  function applyStreamBuffer() {
+    if (!replaceContent) {
+      return;
+    }
+    const last = conversation[conversation.length - 1];
+    if (last?.role === "assistant") {
+      last.content = stripClientVisibleAssistantContent(streamBuffer);
+      if (!deferRender) {
+        renderMessages();
+      }
+    }
+  }
+
+  function onStreamDelta(delta) {
+    if (replaceContent) {
+      streamBuffer += delta;
+      applyStreamBuffer();
+      return;
+    }
+    appendAssistantDelta(delta, { deferRender });
+  }
+
+  try {
+    if (resetAssistant) {
+      const last = conversation[conversation.length - 1];
+      if (last?.role === "assistant") {
+        last.content = "";
+        if (silentReplay) {
+          deferRender = true;
+        } else {
+          renderMessages();
+        }
+      }
+    }
+
+    const payload = {
+      model: CHAT_MODEL,
+      messages: chatPayloadMessages(),
+      stream: true,
+    };
+
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        [TURN_ID_HEADER]: turnId,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.status === 401) {
+      localStorage.removeItem(STORAGE_KEY);
+      showAuthLoginForm("Your session expired or is invalid. Enter your public key again.");
+      throw new Error("Authentication required.");
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Request failed with status ${response.status}`);
+    }
+
+    const contentType = response.headers.get("Content-Type") || "";
+
+    if (!contentType.includes("text/event-stream")) {
+      const data = await response.json();
+      const content = stripClientVisibleAssistantContent(
+        data.choices?.[0]?.message?.content || ""
+      );
+      const last = conversation[conversation.length - 1];
+      if (last?.role === "assistant") {
+        last.content = content;
+      } else {
+        conversation.push({ role: "assistant", content });
+      }
+      renderMessages();
+      refreshSessionState().catch(() => {});
+      return;
+    }
+
+    let assistantSlot = conversation[conversation.length - 1];
+    if (!assistantSlot || assistantSlot.role !== "assistant") {
+      conversation.push({ role: "assistant", content: "" });
+      assistantSlot = conversation[conversation.length - 1];
+      renderMessages();
+      deferRender = false;
+    } else if (resetAssistant) {
+      assistantSlot.content = "";
+      if (!silentReplay) {
+        renderMessages();
+      } else {
+        deferRender = true;
+      }
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || "";
+
+      for (const part of parts) {
+        parseSSEChunk(part, onStreamDelta);
+      }
+    }
+
+    if (buffer) {
+      parseSSEChunk(buffer, onStreamDelta);
+    }
+
+    if (replaceContent) {
+      applyStreamBuffer();
+    }
+
+    if (deferRender) {
+      renderMessages();
+    }
+
+    refreshSessionState().catch(() => {});
+  } finally {
+    clearTimeout(timeoutId);
+    activeChatAbort = null;
+  }
+}
+
 async function sendMessage(text) {
   if (!isAuthenticated) {
     throw new Error("Authentication required.");
   }
 
-  conversation.push({ role: "user", content: text });
-  renderMessages();
-
-  const payload = {
-    model: modelEl.value,
-    messages: conversation
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map(({ role, content }) => ({ role, content })),
-    stream: true,
-  };
-
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (response.status === 401) {
-    localStorage.removeItem(STORAGE_KEY);
-    showAuthGate("Your session expired or is invalid. Enter your public key again.");
-    throw new Error("Authentication required.");
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `Request failed with status ${response.status}`);
-  }
-
-  const contentType = response.headers.get("Content-Type") || "";
-
-  if (!contentType.includes("text/event-stream")) {
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    conversation.push({ role: "assistant", content });
-    renderMessages();
+  if (chatInFlight) {
     return;
   }
 
-  conversation.push({ role: "assistant", content: "" });
-  renderMessages();
+  chatInFlight = true;
+  startWorkingPlaceholder();
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  let recoveryScheduled = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() || "";
-
-    for (const part of parts) {
-      parseSSEChunk(part, appendAssistantDelta);
-    }
-  }
-
-  if (buffer) {
-    parseSSEChunk(buffer, appendAssistantDelta);
-  }
-
-  const last = conversation[conversation.length - 1];
-  if (last?.role === "assistant" && !last.content) {
-    conversation.pop();
+  try {
+    const turnId = crypto.randomUUID();
+    conversation.push({ role: "user", content: text });
+    conversation.push({ role: "assistant", content: "" });
     renderMessages();
+
+    try {
+      await executeChatStream({ turnId, resetAssistant: false });
+      refreshSessionState().catch(() => {});
+    } catch (error) {
+      if (error.message === "Authentication required.") {
+        throw error;
+      }
+      scheduleChatTurnRecovery(turnId);
+      recoveryScheduled = true;
+    }
+  } finally {
+    chatInFlight = false;
+    activeChatAbort = null;
+    ensureComposerActive();
+    if (!recoveryScheduled) {
+      stopWorkingPlaceholder();
+    }
   }
 }
 
@@ -335,7 +863,7 @@ authFormEl.addEventListener("submit", async (event) => {
 
   const publicKey = normalizePublicKey(publicKeyInputEl.value);
   if (!publicKey) {
-    showAuthGate("Enter a public key to continue.");
+    showAuthLoginForm("Enter a public key to continue.");
     return;
   }
 
@@ -345,7 +873,7 @@ authFormEl.addEventListener("submit", async (event) => {
     await completeAuthentication(publicKey);
     promptEl.focus();
   } catch (error) {
-    showAuthGate(error.message || "Invalid public key or authentication failed.");
+    showAuthLoginForm(error.message || "Invalid public key or authentication failed.");
   } finally {
     authSubmitBtn.disabled = false;
   }
@@ -359,22 +887,30 @@ chatForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (text.length > MAX_USER_MESSAGE_CHARS) {
+    showError(
+      `Your response was too long. Please limit your message to ${MAX_USER_MESSAGE_CHARS} characters or fewer.`
+    );
+    return;
+  }
+
   promptEl.value = "";
-  sendBtn.disabled = true;
 
   try {
     await sendMessage(text);
   } catch (error) {
     if (isAuthenticated) {
-      showError(error.message || "Something went wrong.");
+      showError(formatUserFacingError(error));
     }
   } finally {
+    stopWorkingPlaceholder();
+    ensureComposerActive();
     if (isAuthenticated) {
-      sendBtn.disabled = false;
       promptEl.focus();
     }
   }
 });
 
 renderMessages();
+initMarkdown();
 initAuth();

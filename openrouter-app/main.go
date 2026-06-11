@@ -15,7 +15,13 @@ var staticFiles embed.FS
 const (
 	openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
 	maxBodySize   = 1 << 20 // 1 MiB
+
+	openRouterResponseTimeout = 120 * time.Second
 )
+
+var openRouterClient = &http.Client{
+	Timeout: openRouterResponseTimeout,
+}
 
 func main() {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
@@ -34,6 +40,7 @@ func main() {
 	}
 
 	agentStates := newAgentStateStore()
+	turnStore := newTurnStore()
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -54,18 +61,20 @@ func main() {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /api/auth/challenge", auth.handleChallenge)
 	mux.HandleFunc("POST /api/auth/verify", auth.handleVerify)
-	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(apiKey, agentStates)))
+	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(apiKey, agentStates, turnStore)))
 	mux.HandleFunc("GET /api/session/state", auth.requireSession(handleSessionState(agentStates)))
-	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey, agentStates)))
+	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey, agentStates, turnStore)))
 	mux.Handle("GET /{$}", http.FileServer(http.FS(static)))
 	mux.Handle("GET /style.css", contentHandler(static, "style.css", "text/css; charset=utf-8"))
 	mux.Handle("GET /app.js", contentHandler(static, "app.js", "application/javascript"))
+	mux.Handle("GET /marked.min.js", contentHandler(static, "marked.min.js", "application/javascript"))
+	mux.Handle("GET /dompurify.min.js", contentHandler(static, "dompurify.min.js", "application/javascript"))
 
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      loggingMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 120 * time.Second,
+		WriteTimeout: 3 * openRouterResponseTimeout, // allow up to 3 OpenRouter turns per chat request
 		IdleTimeout:  60 * time.Second,
 	}
 

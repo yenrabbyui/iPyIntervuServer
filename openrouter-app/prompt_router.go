@@ -10,6 +10,7 @@ import (
 //go:embed env/instructions/IPyIntervu-entrypoint.md
 //go:embed env/instructions/IPyIntervu-flow.md
 //go:embed env/instructions/IPyIntervu-protocols.md
+//go:embed env/instructions/IPyIntervu-week-scope.md
 //go:embed env/instructions/IPyIntervu-modes-shared.md
 //go:embed env/instructions/IPyIntervu-modes-conceptual.md
 //go:embed env/instructions/IPyIntervu-modes-code.md
@@ -66,6 +67,7 @@ func selectPromptFiles(state *AgentSessionState) ([]promptFile, string) {
 	case phaseAssessmentInProgress, phaseAssessmentResults:
 		files = append(files,
 			promptFile{"IPyIntervu-protocols.md", "env/instructions/IPyIntervu-protocols.md"},
+			promptFile{"IPyIntervu-week-scope.md", "env/instructions/IPyIntervu-week-scope.md"},
 			promptFile{"IPyIntervu-modes-shared.md", "env/instructions/IPyIntervu-modes-shared.md"},
 		)
 		bundleParts = append(bundleParts, "assessment")
@@ -119,6 +121,7 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	b.Write(stateJSON)
 	b.WriteString("\n\n")
 	b.WriteString("Knowledge-base files injected for this turn appear below. Use only those filenames.\n")
+	b.WriteString("Honor assessmentWeekScope in server state: never require concepts from weeks after currentWeekNumber.\n")
 	b.WriteString("When you assign assessment buckets or businessDomain, include a fenced ```_ipyintervu``` JSON block at the end of your reply for server state sync.\n\n")
 
 	loaded := make([]string, 0, len(files))

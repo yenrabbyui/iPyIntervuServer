@@ -1,5 +1,17 @@
 # Week 8 Assessment Rubric
 
+## Assessment scope (Week 8 — while loops and menus)
+
+**In scope:** `while` loops with a condition in the header (e.g. `while choice != 'Q'`), menus, conditionals, repeat-until-quit logic.
+
+**Never prompt or require:** `while True`, `break`, or `continue`. Do not design tasks or lead conceptual questions to elicit those constructs.
+
+**If the student uses them:** When submitted code (or a voluntary explanation) includes `while True`, `break`, or `continue`, treat it as acceptable. Ask pointed interview follow-ups: why they chose that approach and what advantage it had for this problem. Do not penalize for using them; assess understanding of their choice.
+
+**Examples in this rubric** use condition-driven `while` loops only; do not introduce `while True` or `break` in model solutions.
+
+**Forbidden constructs when assessing Week 8:** lists, dictionaries, file I/O, or any task that requires storing multiple records in a collection or reading external data files. Prior weeks (variables, input, strings, conditionals, `for`, `while` menus) are allowed as support.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
@@ -33,17 +45,19 @@
 choice = input('A or B or Q')
 if choice = 'A':
   print('A')
-if choice = 'B':
+elif choice = 'B':
   print('B')
-if choice = 'Q':
-  break
+elif choice == 'Q':
+  print('Goodbye.')
+else:
+  print('Invalid choice.')
 ```
 
 **Issues:**
 
 - uses = instead of == for comparison (syntax/assignment error)
-- no loop—menu runs once and break is invalid outside a loop
-- no while loop to repeat until user quits
+- no `while` loop—menu runs once and exits
+- fails to repeat until user quits
 - fails to implement a menu structure
 
 ## Competent
@@ -139,18 +153,16 @@ while choice != 'Q':
         print('You chose A.')
     elif choice == 'B':
         print('You chose B.')
-    elif choice == 'Q':
-        break  # exit loop
-    else:
+    elif choice != 'Q':
         print('Please enter A, B, or Q.')
 print('Goodbye.')
 ```
 
 **Strengths:**
 
-- clear while loop with exit on Q
+- clear `while` loop; exit when choice becomes Q via the loop condition
 - readable menu layout and prompt
-- correct if/elif/else; explicit break and else for invalid
+- correct if/elif/else with invalid-input handling
 - goodbye message after loop
 - strip().upper() for flexible input
 

@@ -8,49 +8,56 @@
 </head>
 <body>
   <div id="auth-gate" class="auth-gate hidden" aria-hidden="true">
-    <form id="auth-form" class="auth-card">
-      <h2>Enter public key</h2>
-      <p class="auth-copy">Paste the public key you received outside this app.</p>
-      <textarea
-        id="public-key-input"
-        rows="8"
-        placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
-        required
-      ></textarea>
-      <p id="auth-error" class="auth-error hidden" role="alert"></p>
-      <button type="submit" id="auth-submit-btn">Continue</button>
-    </form>
+    <div class="auth-card">
+      <div id="auth-logging-in" class="auth-logging-in hidden" role="status" aria-live="polite">
+        <h2 id="auth-logging-in-title">Logging you in</h2>
+      </div>
+      <form id="auth-form" class="auth-login-form">
+        <h2>Enter public key</h2>
+        <p class="auth-copy">Paste the public key you received outside this app.</p>
+        <textarea
+          id="public-key-input"
+          rows="8"
+          placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+        ></textarea>
+        <p id="auth-error" class="auth-error hidden" role="alert"></p>
+        <button type="submit" id="auth-submit-btn">Continue</button>
+      </form>
+    </div>
   </div>
 
   <main class="app app-locked">
     <header class="header">
       <h1>iPyInterVu</h1>
-      <label class="model-label">
-        Model
-        <select id="model">
-          <option value="deepseek/deepseek-v4-flash">deepseek/deepseek-v4-flash</option>
-          <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
-          <option value="anthropic/claude-3.5-sonnet">anthropic/claude-3.5-sonnet</option>
-          <option value="google/gemini-2.0-flash-001">google/gemini-2.0-flash-001</option>
-        </select>
-      </label>
     </header>
 
     <section id="messages" class="messages" aria-live="polite"></section>
 
-    <form id="chat-form" class="composer">
+    <div class="bottom-panel">
+      <p id="early-coaching-banner" class="early-coaching-banner hidden" role="status" aria-live="polite">
+        Coach mode entered before final assessment results were shown.
+      </p>
+
+      <form id="chat-form" class="composer">
       <textarea
         id="prompt"
         rows="3"
-        placeholder="Ask something..."
+        placeholder="Tell me your answer."
         required
       ></textarea>
       <div class="composer-actions">
+        <div id="assessment-times" class="assessment-times hidden" aria-live="polite">
+          <span id="assessment-start-time" class="assessment-time"></span>
+          <span id="assessment-end-time" class="assessment-time hidden"></span>
+        </div>
         <button type="submit" id="send-btn">Send</button>
       </div>
     </form>
+    </div>
   </main>
 
+  <script src="/marked.min.js"></script>
+  <script src="/dompurify.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

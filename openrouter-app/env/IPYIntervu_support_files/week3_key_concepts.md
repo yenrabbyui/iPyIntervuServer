@@ -7,3 +7,8 @@
 - type casting
 - input() function
 - user interaction
+
+## Assessment scope
+
+- **Allowed:** Weeks 1–2 plus `input()`, type casting.
+- **Forbidden (later weeks):** string methods (Week 4+), conditionals (Week 5+), loops, lists, dicts, file I/O.

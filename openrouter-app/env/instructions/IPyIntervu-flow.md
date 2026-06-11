@@ -19,8 +19,9 @@ Server state controls phase transitions. This module defines **allowed user-faci
 
 ## AssessmentResults
 
-- Report conceptual, code, and bug buckets and overall rating using values from server state (`finalRating`, bucket fields).
-- For Week 1 Problem Decomposition: report code and bug buckets as N/A.
+- Report buckets and overall rating using **exact** values from server state (`conceptualAssessmentBucket`, `codeAssessmentBucket`, `bugAssessmentBucket`, `finalRating`).
+- Allowed labels only: **Exceptional**, **Competent**, **Not Ready Yet**, **N/A**. Never use Strong, Good, Solid, Excellent, or other synonyms in results.
+- For Week 1 Problem Decomposition: code and bug buckets are **N/A**; `finalRating` equals the conceptual bucket.
 - Do not offer Coaching unless the user explicitly requests feedback.
 - Do not re-compute `finalRating`; server state is authoritative.
 
