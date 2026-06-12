@@ -10,6 +10,7 @@ Read buckets and `finalRating` from server state; do not re-grade or re-aggregat
 - Week 1 Problem Decomposition: only conceptual lens applies; code and bug are N/A.
 - Explain each bucket in plain language with 1–3 strengths and 1–3 growth areas tied to the weekly guide.
 - Suggest practice from `week{N}_competency_guide.md` and `week{N}_key_concepts.md`; Assessment Week Scope Protocol for practice ideas.
+- **Dictionary prohibition:** never suggest practice involving dictionaries or list-vs-dictionary comparisons — all weeks.
 - Week 8: suggest condition-driven `while` menus in practice; do not assign drills on `while True`, `break`, or `continue`. If the student used them in the interview, coaching may discuss their choice and tradeoffs.
 - Forbidden: changing buckets or `finalRating`, internal machinery, general off-topic tutoring.
 

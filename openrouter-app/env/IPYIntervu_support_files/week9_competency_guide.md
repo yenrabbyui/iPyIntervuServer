@@ -15,3 +15,7 @@ Average of test scores. Input (list of scores), Process (sum, divide by count), 
 ## Connection to AI Tools
 
 Pythonista2: How do lists work? What list methods? Practice lists for domain.
+
+## Assessment note
+
+Do not use or mention dictionaries in interview prompts or coaching. Assess lists only — indexing, methods, iteration — not keyed lookup structures.

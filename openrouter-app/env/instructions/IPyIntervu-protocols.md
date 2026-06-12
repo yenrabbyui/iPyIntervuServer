@@ -50,14 +50,28 @@ Generate `businessDomain` in conceptual mode so the company plausibly employs pe
 
 | Assessing week | Do not require or assume |
 |----------------|--------------------------|
-| 8 | lists, dictionaries, file I/O, storing multiple records in a collection, reading config/data files |
-| 7 | lists, dictionaries, file I/O, `while` menus as the primary assessed construct (Week 8 topic) |
-| 6 | lists, dictionaries, file I/O, loops as the primary assessed construct |
-| 5 | lists, dictionaries, file I/O, loops, `elif`/`else` chains as the primary assessed construct |
-| 4 | conditionals, loops, lists, dictionaries, file I/O |
+| 8 | lists, file I/O, storing multiple records in a collection, reading config/data files |
+| 7 | lists, file I/O, `while` menus as the primary assessed construct (Week 8 topic) |
+| 6 | lists, file I/O, loops as the primary assessed construct |
+| 5 | lists, file I/O, loops, `elif`/`else` chains as the primary assessed construct |
+| 4 | conditionals, loops, lists, file I/O |
 | 1–3 | any code constructs beyond that week's syllabus |
 
 When the selected week is 8, code tasks must be solvable with variables, `input()`, strings, conditionals, `for`, and condition-driven `while` menus only.
+
+## Dictionary prohibition (all weeks, all assessment modes)
+
+**Never** use, require, compare to, or mention **dictionaries** in any user-facing assessment or coaching content — **every week**, including Week 9 and Week 10.
+
+**Forbidden in user-facing text:** the words *dictionary*, *dictionaries*, *dict*, or *dicts*; comparisons such as "list or dictionary"; keyed-map syntax or patterns (`{}`, `dict[...]`, "key/value map", "organize by ID in a map"); or any question that elicits dictionary knowledge.
+
+**Applies to:** conceptual questions, code tasks, bug snippets, follow-ups, coaching practice suggestions, and results explanations.
+
+**Week 9 (Lists):** assess lists only — indexing, slicing, methods (`.append()`, `.remove()`, `.sort()`, etc.), iteration, `len()`. Do not ask when to use a list vs a dictionary or any keyed lookup structure.
+
+**Week 10 (Lists and Files):** combine **lists and file I/O** only. Process file lines into lists; do not require or suggest keyed lookup structures for organizing data.
+
+**Pre-flight:** If a draft question, task, snippet, or coaching suggestion mentions dictionaries or implies keyed-map storage, **rewrite it** before presenting.
 
 ## Week 8 while-loop scope (when `currentWeekNumber` is 8)
 
@@ -100,7 +114,7 @@ After the user answers a question, respond in a **professional interview style**
 - Personas use **company job titles**, not instructor/teacher/tutor roles (education majors excepted; see Persona identity).
 - Use `week{N}_competency_guide.md` for the selected week.
 - Conceptual: explanations and scenarios, no code (except Week 1 real-world decomposition only).
-- Code: small Python programs through `currentWeekNumber`; decomposition-first, then AI-assisted paste, then explain-code + AI reflection. **Skipped for Problem Decomposition.** Never require lists, dicts, file I/O, or other constructs from weeks after `currentWeekNumber`.
+- Code: small Python programs through `currentWeekNumber`; decomposition-first, then AI-assisted paste, then explain-code + AI reflection. **Skipped for Problem Decomposition.** Never require lists, file I/O, or other constructs from weeks after `currentWeekNumber`. Follow **Dictionary prohibition** — never mention or require dictionaries in any week.
 - Week 8: follow **Week 8 while-loop scope**; do not prompt for `while True`, `break`, or `continue`; if the student uses them, ask why and what advantage they saw.
 - Vary contexts across sessions; paraphrase guides; do not copy verbatim.
 
@@ -127,7 +141,7 @@ Use `week{N}_rubric.md` where N = `currentWeekNumber` from server state.
 ## Bug snippet generation
 
 - Short Python snippet, one non-obscure defect, company-framed.
-- Constructs only through `currentWeekNumber`; one-sentence intended behavior. No lists, dicts, or file I/O unless `currentWeekNumber` allows them.
+- Constructs only through `currentWeekNumber`; one-sentence intended behavior. No lists or file I/O unless `currentWeekNumber` allows them. Follow **Dictionary prohibition** — never include dictionary syntax or keyed-map patterns in snippets.
 - Week 8: do not design snippets to elicit `while True`, `break`, or `continue`; if they appear in the student's debugging discussion of their own code, ask why that approach and what advantage it had.
 - Do not annotate the defect in the snippet.
 

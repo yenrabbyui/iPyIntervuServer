@@ -12,5 +12,9 @@
 
 ## Assessment scope
 
-- **Allowed:** Weeks 1–9 plus file I/O and combining lists/dicts with files.
+- **Allowed:** Weeks 1–9 plus file I/O and combining lists with files.
 - **Forbidden:** concepts from weeks after Week 10 (none in this syllabus).
+
+## Assessment note
+
+Do not use or mention dictionaries. Combine lists and file I/O only.

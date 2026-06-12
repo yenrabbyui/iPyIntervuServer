@@ -56,8 +56,6 @@ var conceptsIntroducedByWeek = map[int][]string{
 		"list indexing",
 		"list methods (.append, .remove, .sort, etc.)",
 		"len() on lists",
-		"dictionaries",
-		"dict key access",
 	},
 	10: {
 		"file I/O",

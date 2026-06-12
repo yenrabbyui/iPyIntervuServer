@@ -13,4 +13,4 @@
 ## Assessment scope
 
 - **Allowed:** Weeks 1–3 plus string methods and formatting.
-- **Forbidden (later weeks):** conditionals (Week 5+), loops (Week 7+), lists, dicts, file I/O.
+- **Forbidden (later weeks):** conditionals (Week 5+), loops (Week 7+), lists, file I/O.

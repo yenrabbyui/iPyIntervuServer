@@ -24,11 +24,11 @@ Do not assign tasks or ask questions aimed at these constructs. If the student s
 
 ## Forbidden: later-week concepts (Week 9–10)
 
-Do not assign programming tasks or conceptual questions that require **lists**, **dictionaries**, or **file I/O**. Those are introduced in later weeks.
+Do not assign programming tasks or conceptual questions that require **lists** or **file I/O**. Those are introduced in later weeks.
 
 **Good Week 8 task shapes:** menu-driven calculator; interactive lab instrument panel; quiz app that loops until the user quits—all using `while choice != 'q'`, `if`/`elif`, variables, and `input()` only.
 
-**Reject and rewrite tasks like:** “keep a list of all calculations”; “load menu options from a file”; “store employee records in a dictionary”; “process a CSV of readings.”
+**Reject and rewrite tasks like:** “keep a list of all calculations”; “load menu options from a file”; “organize records by ID in a lookup structure”; “process a CSV of readings.”
 
 ## Simple Example Demonstration
 

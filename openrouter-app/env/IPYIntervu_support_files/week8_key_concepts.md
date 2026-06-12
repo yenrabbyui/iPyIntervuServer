@@ -19,7 +19,6 @@ Do not ask the student to explain, use, or prefer `while True`, `break`, or `con
 Week 8 assessments must **not** require or assume:
 
 - **Lists** — `[]`, `.append()`, storing multiple records, history logs, collections of items
-- **Dictionaries** — `{}`, key/value maps, organizing data by ID
 - **File I/O** — `open()`, reading/writing files, loading config or datasets from disk
 
 Use scalar variables, `input()`, strings, conditionals, `for`, and condition-driven `while` menus only. Example: a menu-driven calculator or lab tool that repeats until quit—not “save each result to a list” or “read options from a file.”

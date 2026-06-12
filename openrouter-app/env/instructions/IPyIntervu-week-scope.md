@@ -10,6 +10,16 @@ The server state JSON includes `assessmentWeekScope` with `allowedWeekNumbers`, 
 
 Prior-week concepts may appear as supporting ingredients (e.g. Week 8 code may use `if`/`elif`/`else` from Weeks 5–6 and `for` from Week 7). Later-week concepts must not appear—not even as optional extras or “nice to have” features.
 
+## Dictionary prohibition (all weeks)
+
+**Dictionaries are never in scope** for any assessment mode or coaching session — not even in Week 9 or Week 10.
+
+- Do not use, require, compare to, or mention dictionaries (or *dict*, keyed maps, `{}` lookup patterns) in conceptual questions, code tasks, bug snippets, follow-ups, or coaching.
+- Week 9 assesses **lists only**. Do not ask “list or dictionary?” or similar.
+- Week 10 combines **lists and file I/O**; organize file data with lists, not keyed lookup structures.
+
+See **Dictionary prohibition** in IPyIntervu-protocols.md.
+
 ## Concepts introduced by week
 
 | Week | Key concept | First introduced in this week |
@@ -22,7 +32,7 @@ Prior-week concepts may appear as supporting ingredients (e.g. Week 8 code may u
 | 6 | elif/else | `elif`, `else`, multi-branch conditionals |
 | 7 | for Loops | `for`, `range()`, iterating sequences |
 | 8 | while Loops & Menus | `while` with condition in header, menus, repeat-until-quit |
-| 9 | Lists | lists, list indexing/methods, dictionaries |
+| 9 | Lists | lists, list indexing/methods, list iteration |
 | 10 | Lists and Files | file I/O (`open`, read/write, `with open`) |
 
 ## Pre-presentation checklist (all assessment modes)
@@ -39,7 +49,6 @@ Prior-week concepts may appear as supporting ingredients (e.g. Week 8 code may u
 **Forbidden in Week 8** (require Week 9+):
 
 - Storing multiple items in a **list** or history log (`[]`, `.append()`, iterating a collection of records).
-- **Dictionary** lookup or key/value storage (`{}`, `dict[...]`).
 - **Reading or writing files** (`open()`, file paths, CSV/JSON file loading).
 - Tasks framed as “process a dataset”, “load records from a file”, or “maintain a list of transactions”.
 

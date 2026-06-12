@@ -10,7 +10,7 @@
 
 **Examples in this rubric** use condition-driven `while` loops only; do not introduce `while True` or `break` in model solutions.
 
-**Forbidden constructs when assessing Week 8:** lists, dictionaries, file I/O, or any task that requires storing multiple records in a collection or reading external data files. Prior weeks (variables, input, strings, conditionals, `for`, `while` menus) are allowed as support.
+**Forbidden constructs when assessing Week 8:** lists, file I/O, or any task that requires storing multiple records in a collection or reading external data files. Prior weeks (variables, input, strings, conditionals, `for`, `while` menus) are allowed as support.
 
 ## Not Yet Ready
 

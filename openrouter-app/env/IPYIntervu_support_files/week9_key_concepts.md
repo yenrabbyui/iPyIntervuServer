@@ -11,5 +11,9 @@
 
 ## Assessment scope
 
-- **Allowed:** Weeks 1–8 plus lists, list methods, dictionaries.
+- **Allowed:** Weeks 1–8 plus lists and list methods.
 - **Forbidden (later weeks):** file I/O (`open`, read/write files, `with open`) — Week 10 topic.
+
+## Assessment note
+
+Do not use or mention dictionaries in any question, task, snippet, or coaching suggestion. Week 9 assesses **lists only** — no list-vs-dictionary comparisons.

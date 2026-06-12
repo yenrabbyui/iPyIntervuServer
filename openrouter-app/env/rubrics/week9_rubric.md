@@ -1,22 +1,21 @@
 # Week 9 Assessment Rubric
 
+**Scope:** lists only — indexing, methods, iteration, `len()`. Dictionaries are not assessed and must not appear in prompts or examples.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant errors about lists or dictionaries
-- confuses list vs dict or indexing/key access
-- does not understand file open/read/close or with
-- cannot articulate when to use list vs dict
-- fundamental misunderstanding of data processing from files
+- significant errors about lists
+- confuses list indexing with function calls or other syntax
+- cannot articulate when a list is appropriate vs scalar variables
+- fundamental misunderstanding of list methods or iteration
 
 ### Code Answer
 
 - non-functional or major syntax/logic errors
-- wrong list or dict usage (e.g. wrong indexing or key access)
-- file not opened correctly (e.g. write mode when reading)
-- no with statement or file not closed
-- does not process or format file data correctly
+- wrong list usage (e.g. wrong indexing, `.append()` on a non-list, off-by-one in loops)
+- does not process or format list data correctly
 - completely misses the prompt
 
 ### AI Use Answer
@@ -44,24 +43,21 @@ last = items(-1)
 
 ### Conceptual Answer
 
-- factually correct
-- can describe list vs dict and when to use each
-- can describe file open/read/readlines and with
-- can describe basic data processing (loop, look up)
+- factually correct about lists
+- can describe indexing, negative indices, and common list methods
+- can describe iterating over a list with `for`
 - may lack depth on edge cases or efficient patterns
 
 ### Code Answer
 
 - complete and functional
-- correct list/dict usage
-- correct file open and read (with open, readlines or read)
-- correct processing (loop, convert, aggregate)
-- correct formatted output
+- correct list usage (indexing, methods, iteration as required)
+- correct processing (loop, aggregate, format output)
 - may have minimal error handling or comments
 
 ### AI Use Answer
 
-- using AI for file I/O, data structures, debugging, or explanation
+- using AI for list operations, debugging, or explanation
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
@@ -86,22 +82,20 @@ last = items[-1]
 
 - correct, clear, comprehensive
 - concrete examples
-- connects to problem decomposition (input file, process, output)
-- may discuss choosing list vs dict
-- may discuss empty file or bad data handling
+- connects to problem decomposition (collect items, process collection, output)
+- may discuss empty list or invalid index handling
 
 ### Code Answer
 
 - complete, functional, clear
-- appropriate list/dict usage
-- correct file handling (with open, clear reading)
+- appropriate list usage throughout
 - clear processing and variable names
 - readable formatted output
-- may handle empty file or invalid lines
+- may handle empty list or boundary cases
 
 ### AI Use Answer
 
-- AI to critique data structures, file handling, or generate test files
+- AI to critique list logic, edge cases, or generate test data
 - strategic use to deepen understanding
 - improve code quality
 
