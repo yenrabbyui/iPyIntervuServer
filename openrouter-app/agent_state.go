@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-const promptVersion = "2.0-fragments"
+const promptVersion = "2.2-sync-enforcement"
 
 const (
 	phaseAwaitingMajor              = "AwaitingMajor"
@@ -25,6 +25,11 @@ const (
 	bucketNA          = "N/A"
 )
 
+const (
+	assessmentPhaseInProgress = "in_progress"
+	assessmentPhaseComplete   = "complete"
+)
+
 // AgentSessionState is the server-owned session state (Tiers A–D).
 type AgentSessionState struct {
 	// Tier A — setup and conversation control
@@ -43,8 +48,11 @@ type AgentSessionState struct {
 	ActiveMode                   string   `json:"activeMode,omitempty"`
 	BusinessDomain               string   `json:"businessDomain,omitempty"`
 	ConceptualAssessmentBucket   string   `json:"conceptualAssessmentBucket,omitempty"`
+	ConceptualAssessmentPhase    string   `json:"conceptualAssessmentPhase,omitempty"`
 	CodeAssessmentBucket         string   `json:"codeAssessmentBucket,omitempty"`
+	CodeAssessmentPhase          string   `json:"codeAssessmentPhase,omitempty"`
 	BugAssessmentBucket          string   `json:"bugAssessmentBucket,omitempty"`
+	BugAssessmentPhase           string   `json:"bugAssessmentPhase,omitempty"`
 	ModesCompleted               []string `json:"modesCompleted,omitempty"`
 	CoachingRequested            bool     `json:"coachingRequested"`
 	CoachingEnteredBeforeResults bool     `json:"coachingEnteredBeforeResults"`
@@ -91,8 +99,11 @@ func (s *AgentSessionState) snapshotForPrompt() map[string]any {
 		"activeMode":                 s.ActiveMode,
 		"businessDomain":             s.BusinessDomain,
 		"conceptualAssessmentBucket": s.ConceptualAssessmentBucket,
+		"conceptualAssessmentPhase":  s.ConceptualAssessmentPhase,
 		"codeAssessmentBucket":       s.CodeAssessmentBucket,
+		"codeAssessmentPhase":        s.CodeAssessmentPhase,
 		"bugAssessmentBucket":        s.BugAssessmentBucket,
+		"bugAssessmentPhase":         s.BugAssessmentPhase,
 		"modesCompleted":             s.ModesCompleted,
 		"coachingRequested":          s.CoachingRequested,
 		"coachingEnteredBeforeResults": s.CoachingEnteredBeforeResults,
@@ -103,7 +114,14 @@ func (s *AgentSessionState) snapshotForPrompt() map[string]any {
 		"messageIndex":               s.MessageIndex,
 		"instructionBundleId":        s.InstructionBundleID,
 		"promptVersion":              s.PromptVersion,
-		"modeTransitionPolicy":       "Server enforces automatic mode transitions after bucket assignment; do not ask the user to choose the next assessment mode.",
+		"modeTransitionPolicy": "Assessment modes advance forward only: ConceptualUnderstanding → CodeProblem → BugHunting → AssessmentResults. Never return to a completed or earlier mode. Server enforces activeMode forward-only; do not ask conceptual questions after conceptual is complete, or code tasks after code is complete.",
+		"assessmentSyncPolicy": map[string]string{
+			"mandatory":  "Every assessment-mode reply MUST end with ```_ipyintervu``` as the last lines. Required on intros, acknowledgments, and every question. Omission triggers server retry.",
+			"inProgress": "Include active mode assessmentPhase: \"in_progress\" in _ipyintervu. Do not include the bucket field while in_progress.",
+			"complete":   "Include active mode assessmentPhase: \"complete\" and the mode bucket (Not Ready Yet, Competent, or Exceptional) in _ipyintervu. Do not ask new interview questions in that mode after complete.",
+			"userFacing": "The _ipyintervu block is stripped before display. Never mention sync blocks, _ipyintervu, or [System] messages in user-facing text. Do not respond to [System] lines as if the student wrote them.",
+			"lastLines":  "The fenced _ipyintervu block must be the final content in the reply; nothing after the closing fence.",
+		},
 	}
 	if s.CurrentWeekNumber > 0 && (s.ConversationPhase == phaseAssessmentInProgress || s.ConversationPhase == phaseAssessmentResults) {
 		snap["assessmentWeekScope"] = assessmentWeekScopeSnapshot(s.CurrentWeekNumber)

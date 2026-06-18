@@ -29,6 +29,32 @@ func TestClientVisibleAssistantContentHoldsPartialIPyFence(t *testing.T) {
 	}
 }
 
+func TestClientVisibleAssistantContentHoldsBareUnderscoreFence(t *testing.T) {
+	raw := "Please choose one of these key concepts for us to assess today.\n```_"
+	got := clientVisibleAssistantContent(raw)
+	want := "Please choose one of these key concepts for us to assess today."
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestClientVisibleAssistantContentHoldsBareOpeningFence(t *testing.T) {
+	raw := "Thanks - I have your major as math.\n\n```"
+	got := clientVisibleAssistantContent(raw)
+	want := "Thanks - I have your major as math."
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestClientVisibleAssistantContentPreservesPythonFence(t *testing.T) {
+	raw := "Try this:\n\n```python\nprint('hi')\n```"
+	got := clientVisibleAssistantContent(raw)
+	if got != raw {
+		t.Fatalf("got %q, want python block preserved", got)
+	}
+}
+
 func TestStripIPyIntervuTailShortFenceTag(t *testing.T) {
 	raw := "Summary text.\n\n```_ipy\n{\"conceptualAssessmentBucket\": \"Competent\"}\n```"
 	got := stripIPyIntervuTail(raw)

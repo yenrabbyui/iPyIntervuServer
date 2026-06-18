@@ -15,7 +15,9 @@ Server state controls phase transitions. This module defines **allowed user-faci
 
 ## AssessmentInProgress
 
-- Handled by active mode modules. Server sets `activeMode`; transitions are automatic after bucket assignment.
+- Handled by active mode modules. Server sets `activeMode`; transitions are automatic when the active mode's `assessmentPhase` is `"complete"` and a valid bucket is present in `_ipyintervu`.
+- **Every assessment-mode reply must end with ```_ipyintervu```** — last lines of the reply, active mode only. Required on introductions, acknowledgments, and every question; omission causes a server retry.
+- While asking questions: `"<mode>AssessmentPhase": "in_progress"` (omit bucket). When finishing a mode: `"complete"` plus bucket.
 
 ## AssessmentResults
 

@@ -73,10 +73,10 @@ func selectPromptFiles(state *AgentSessionState) ([]promptFile, string) {
 		bundleParts = append(bundleParts, "assessment")
 	}
 
-	if state.CoachingRequested {
+	if state.ActiveMode == modeCoaching {
 		files = append(files, promptFile{"IPyIntervu-modes-coaching.md", "env/instructions/IPyIntervu-modes-coaching.md"})
 		bundleParts = append(bundleParts, "coaching")
-	} else {
+	} else if state.ConversationPhase == phaseAssessmentInProgress || state.ConversationPhase == phaseAssessmentResults {
 		switch state.ActiveMode {
 		case modeConceptual:
 			files = append(files, promptFile{"IPyIntervu-modes-conceptual.md", "env/instructions/IPyIntervu-modes-conceptual.md"})
@@ -108,6 +108,23 @@ func selectPromptFiles(state *AgentSessionState) ([]promptFile, string) {
 	return files, strings.Join(bundleParts, "+")
 }
 
+func assessmentSyncPromptForState(state *AgentSessionState) string {
+	if state.ConversationPhase != phaseAssessmentInProgress {
+		return ""
+	}
+	phaseField, bucketField, label := currentModeSyncFields(state)
+	if phaseField == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"MANDATORY THIS TURN (%s): End your reply with ```_ipyintervu``` as the last lines. "+
+			"While interviewing include only {\"%s\": \"in_progress\"}. "+
+			"When finishing this mode include \"%s\": \"complete\" and \"%s\". "+
+			"Omitting the block forces a server retry and delays the student. Never mention the sync block in interview text.\n",
+		label, phaseField, phaseField, bucketField,
+	)
+}
+
 func buildSystemPrompt(state *AgentSessionState) (string, []string, string, error) {
 	files, bundleID := selectPromptFiles(state)
 	state.InstructionBundleID = bundleID
@@ -122,7 +139,17 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	b.WriteString("\n\n")
 	b.WriteString("Knowledge-base files injected for this turn appear below. Use only those filenames.\n")
 	b.WriteString("Honor assessmentWeekScope in server state: never require concepts from weeks after currentWeekNumber.\n")
-	b.WriteString("When you assign assessment buckets or businessDomain, include a fenced ```_ipyintervu``` JSON block at the end of your reply for server state sync.\n\n")
+	b.WriteString("ASSESSMENT SYNC (mandatory): Every Conceptual/Code/Bug reply MUST end with ```_ipyintervu``` JSON as the last lines — introductions, acknowledgments, and every question. Missing sync triggers a server corrective round-trip.\n")
+	b.WriteString("Use assessmentPhase \"in_progress\" while asking interview questions (omit bucket). Use assessmentPhase \"complete\" plus the bucket when finishing that mode. Mode transitions require complete plus a valid bucket.\n")
+	if syncLine := assessmentSyncPromptForState(state); syncLine != "" {
+		b.WriteString(syncLine)
+	}
+	b.WriteString("Assessment modes advance forward only (Conceptual → Code → Bug). Never return to a completed or earlier mode; follow activeMode in server state.\n")
+	b.WriteString("During assessment (coachingRequested false): never offer explanations, walkthroughs, hints that reveal answers, or coaching. Only Coaching mode may explain or teach.\n")
+	if state.ActiveMode == modeBug && state.ConversationPhase == phaseAssessmentInProgress {
+		b.WriteString("Bug Hunting: ask how the student would find the bug (process only). Do not ask for corrected/fixed code. Do not answer your own debugging questions.\n")
+	}
+	b.WriteString("\n")
 
 	loaded := make([]string, 0, len(files))
 	for _, file := range files {

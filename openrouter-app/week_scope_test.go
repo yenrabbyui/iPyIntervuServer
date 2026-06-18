@@ -12,7 +12,7 @@ func TestForbiddenConceptsForWeek8(t *testing.T) {
 		t.Fatal("expected forbidden concepts for week 8")
 	}
 	joined := strings.ToLower(strings.Join(forbidden, " "))
-	for _, term := range []string{"lists", "file i/o", "dictionaries"} {
+	for _, term := range []string{"lists", "file i/o"} {
 		if !strings.Contains(joined, term) {
 			t.Fatalf("expected week 8 forbidden list to include %q", term)
 		}

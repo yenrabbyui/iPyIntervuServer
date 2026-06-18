@@ -185,9 +185,41 @@ func (p *chatRunParams) finalizeTurn(rawAssistant string, failed bool) {
 		truncateSessionID(p.sessionID), truncateTurnID(p.turnID), len(visible))
 }
 
+func (p *chatRunParams) tryScheduleFollowUpTurn(
+	followUp assistantTurnFollowUp,
+	assistant string,
+	turnMessages *[]chatMessage,
+	turnUserMessage *string,
+	modeContinuations *int,
+	bucketSyncAttempted *bool,
+	streaming bool,
+) bool {
+	if !followUp.ContinueTurn || followUp.Handoff == "" {
+		return false
+	}
+	if followUp.Kind == "mode" || followUp.Kind == "results" {
+		*modeContinuations++
+	}
+	if followUp.Kind == "assessment_sync" {
+		*bucketSyncAttempted = true
+		log.Printf("[openrouter] assessment_sync_retry session=%s turn_id=%s active_mode=%s",
+			truncateSessionID(p.sessionID), truncateTurnID(p.turnID), p.state.ActiveMode)
+	}
+	if streaming {
+		writeSSEKeepalive(p.w)
+	}
+	*turnMessages = append(*turnMessages,
+		chatMessage{Role: "assistant", Content: assistant},
+		chatMessage{Role: "user", Content: followUp.Handoff},
+	)
+	*turnUserMessage = followUp.Handoff
+	return true
+}
+
 func runChatRequest(p chatRunParams) {
 	chatStarted := time.Now()
 	modeContinuations := 0
+	bucketSyncAttempted := false
 
 	turnMessages := append([]chatMessage(nil), p.req.Messages...)
 	turnUserMessage := p.userMessage
@@ -211,7 +243,7 @@ func runChatRequest(p chatRunParams) {
 		}
 	}()
 
-	for turn := 0; turn < 3; turn++ {
+	for turn := 0; turn < maxChatInternalTurns; turn++ {
 		prompt, _, _, err := buildSystemPrompt(p.state)
 		if err != nil {
 			http.Error(p.w, "internal error", http.StatusInternalServerError)
@@ -353,34 +385,23 @@ func runChatRequest(p chatRunParams) {
 			}
 			combinedAssistant.WriteString(assistant)
 
-			shouldContinue := applyPostChatStateUpdate(p.state, turnUserMessage, assistant)
+			syncLog := &ipySyncLogContext{
+				sessionID:  p.sessionID,
+				turnID:     p.turnID,
+				modeTurn:   turn,
+				activeMode: p.state.ActiveMode,
+				phase:      p.state.ConversationPhase,
+			}
+			followUp := postProcessAssistantTurn(p.state, assistant, bucketSyncAttempted, syncLog)
 			p.states.set(p.sessionID, p.state)
-			if !shouldContinue {
-				if p.managesTurn() {
-					p.finalizeTurn(combinedAssistant.String(), false)
-				}
-				logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
-				return
+			if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &bucketSyncAttempted, streaming) {
+				continue
 			}
-
-			handoff := modeContinuationUserMessage(p.state)
-			if handoff == "" {
-				if p.managesTurn() {
-					p.finalizeTurn(combinedAssistant.String(), false)
-				}
-				logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
-				return
+			if p.managesTurn() {
+				p.finalizeTurn(combinedAssistant.String(), false)
 			}
-
-			modeContinuations++
-			writeSSEKeepalive(p.w)
-
-			turnMessages = append(turnMessages,
-				chatMessage{Role: "assistant", Content: assistant},
-				chatMessage{Role: "user", Content: handoff},
-			)
-			turnUserMessage = handoff
-			continue
+			logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
+			return
 		}
 
 		logCtx := newOpenRouterLogCtx(p.sessionID, p.turnID, "chat_body", turn)
@@ -409,47 +430,32 @@ func runChatRequest(p chatRunParams) {
 		}
 		combinedAssistant.WriteString(assistant)
 
-		shouldContinue := applyPostChatStateUpdate(p.state, turnUserMessage, assistant)
+		syncLog := &ipySyncLogContext{
+			sessionID:  p.sessionID,
+			turnID:     p.turnID,
+			modeTurn:   turn,
+			activeMode: p.state.ActiveMode,
+			phase:      p.state.ConversationPhase,
+		}
+		followUp := postProcessAssistantTurn(p.state, assistant, bucketSyncAttempted, syncLog)
 		p.states.set(p.sessionID, p.state)
 
-		if !shouldContinue {
-			strippedBody, err := replaceAssistantContent(respBody, stripIPyIntervuTail(combinedAssistant.String()))
-			if err != nil {
-				strippedBody = respBody
-			}
-			p.w.Header().Set("Content-Type", "application/json")
-			p.w.WriteHeader(statusCode)
-			_, _ = p.w.Write(strippedBody)
-			if p.managesTurn() {
-				p.finalizeTurn(combinedAssistant.String(), false)
-			}
-			logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
-			return
+		if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &bucketSyncAttempted, streaming) {
+			continue
 		}
 
-		handoff := modeContinuationUserMessage(p.state)
-		if handoff == "" {
-			strippedBody, err := replaceAssistantContent(respBody, stripIPyIntervuTail(combinedAssistant.String()))
-			if err != nil {
-				strippedBody = respBody
-			}
-			p.w.Header().Set("Content-Type", "application/json")
-			p.w.WriteHeader(statusCode)
-			_, _ = p.w.Write(strippedBody)
-			if p.managesTurn() {
-				p.finalizeTurn(combinedAssistant.String(), false)
-			}
-			logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
-			return
+		strippedBody, err := replaceAssistantContent(respBody, stripIPyIntervuTail(combinedAssistant.String()))
+		if err != nil {
+			strippedBody = respBody
 		}
-
-		modeContinuations++
-
-		turnMessages = append(turnMessages,
-			chatMessage{Role: "assistant", Content: assistant},
-			chatMessage{Role: "user", Content: handoff},
-		)
-		turnUserMessage = handoff
+		p.w.Header().Set("Content-Type", "application/json")
+		p.w.WriteHeader(statusCode)
+		_, _ = p.w.Write(strippedBody)
+		if p.managesTurn() {
+			p.finalizeTurn(combinedAssistant.String(), false)
+		}
+		logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
+		return
 	}
 
 	if p.managesTurn() {

@@ -82,10 +82,10 @@ func prependSystemPrompt(body []byte, prompt string) ([]byte, error) {
 func openRouterHeaders(req *http.Request, apiKey string) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	if referer := os.Getenv("OPENROUTER_HTTP_REFERER"); referer != "" {
+	if referer := os.Getenv("OPENROUTER_HTTP_REFERER"); referer != "https://aalang.org" {
 		req.Header.Set("HTTP-Referer", referer)
 	}
-	if title := os.Getenv("OPENROUTER_APP_TITLE"); title != "" {
+	if title := os.Getenv("OPENROUTER_APP_TITLE"); title != "iPyInterVu" {
 		req.Header.Set("X-Title", title)
 	}
 }

@@ -38,6 +38,9 @@ const DOT_ANIMATION_INTERVAL_MS = 600;
 const workingPlaceholderAnimation = { timer: null, phase: 0 };
 const loggingInAnimation = { timer: null, phase: 0 };
 
+/** Once coaching is entered before results, keep the banner until page reload. */
+let earlyCoachingBannerLatched = false;
+
 const INSECURE_CONTEXT_MESSAGE =
   "Authentication requires HTTPS or localhost. Browsers block encryption on plain HTTP to remote hosts. Use https://, open http://127.0.0.1/ on the server, or use an SSH tunnel.";
 
@@ -49,24 +52,24 @@ function normalizePublicKey(pem) {
   return pem.replace(/\r/g, "").trim();
 }
 
+function isWaitingForResponse() {
+  return chatInFlight || activeRecoveryPromise !== null;
+}
+
 function setChatEnabled(enabled) {
   isAuthenticated = enabled;
   appEl.classList.toggle("app-locked", !enabled);
-  if (enabled) {
-    ensureComposerActive();
-  } else {
+  if (!enabled) {
     stopWorkingPlaceholder();
-    promptEl.disabled = true;
-    sendBtn.disabled = true;
   }
+  updateComposerEnabled();
 }
 
-function ensureComposerActive() {
-  if (!isAuthenticated) {
-    return;
-  }
-  promptEl.disabled = false;
-  sendBtn.disabled = false;
+function updateComposerEnabled() {
+  const busy = isAuthenticated && isWaitingForResponse();
+  promptEl.disabled = !isAuthenticated || busy;
+  sendBtn.disabled = !isAuthenticated || busy;
+  chatForm.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
 function dotAnimationText(base, phase) {
@@ -146,6 +149,7 @@ function scheduleChatTurnRecovery(turnId) {
   }
 
   activeRecoveryTurnId = turnId;
+  updateComposerEnabled();
   activeRecoveryPromise = recoverChatTurn(turnId)
     .catch((error) => {
       if (error?.message === "Authentication required.") {
@@ -154,11 +158,11 @@ function scheduleChatTurnRecovery(turnId) {
     })
     .finally(() => {
       stopWorkingPlaceholder();
-      ensureComposerActive();
       if (activeRecoveryTurnId === turnId) {
         activeRecoveryTurnId = null;
         activeRecoveryPromise = null;
       }
+      updateComposerEnabled();
     });
   return activeRecoveryPromise;
 }
@@ -367,12 +371,10 @@ function renderAssessmentTimes(state) {
 }
 
 function renderEarlyCoachingBanner(state) {
-  const enteredBeforeResults = state?.coachingEnteredBeforeResults === true;
-  const resultsShown =
-    state?.conversationPhase === "AssessmentResults" || state?.assessmentComplete === true;
-  const show = enteredBeforeResults && !resultsShown;
-
-  if (show) {
+  if (state?.coachingEnteredBeforeResults === true) {
+    earlyCoachingBannerLatched = true;
+  }
+  if (earlyCoachingBannerLatched) {
     earlyCoachingBannerEl.classList.remove("hidden");
   } else {
     earlyCoachingBannerEl.classList.add("hidden");
@@ -503,20 +505,31 @@ function initMarkdown() {
 }
 
 const completeIPyFencePattern = /```(?:json)?\s*_ipy(?:intervu)?\s*\n[\s\S]*?\n```/gi;
-const partialIPyFencePattern = /```(?:json\s*)?(?:_ipy(?:intervu)?[\s\S]*)$/i;
+
+function stripTrailingPartialIPyFence(content) {
+  const fenceCount = (content.match(/```/g) || []).length;
+  if (fenceCount === 0 || fenceCount % 2 === 0) {
+    return content;
+  }
+  const open = content.lastIndexOf("```");
+  const after = content.slice(open + 3).trim();
+  if (
+    after === "" ||
+    after.startsWith("json") ||
+    after.startsWith("_") ||
+    after.toLowerCase().startsWith("_ipy")
+  ) {
+    return content.slice(0, open).replace(/[ \t\r\n]+$/, "");
+  }
+  return content;
+}
 
 function stripClientVisibleAssistantContent(content) {
   if (!content) {
     return "";
   }
   let stripped = content.replace(completeIPyFencePattern, "");
-  const partialMatch = stripped.match(partialIPyFencePattern);
-  if (partialMatch) {
-    const matched = partialMatch[0];
-    if ((matched.match(/```/g) || []).length < 2) {
-      stripped = stripped.slice(0, stripped.length - matched.length);
-    }
-  }
+  stripped = stripTrailingPartialIPyFence(stripped);
   return stripped.replace(/[ \t\r\n]+$/, "");
 }
 
@@ -828,9 +841,8 @@ async function sendMessage(text) {
   }
 
   chatInFlight = true;
+  updateComposerEnabled();
   startWorkingPlaceholder();
-
-  let recoveryScheduled = false;
 
   try {
     const turnId = crypto.randomUUID();
@@ -845,16 +857,13 @@ async function sendMessage(text) {
       if (error.message === "Authentication required.") {
         throw error;
       }
-      scheduleChatTurnRecovery(turnId);
-      recoveryScheduled = true;
+      await scheduleChatTurnRecovery(turnId);
     }
   } finally {
     chatInFlight = false;
     activeChatAbort = null;
-    ensureComposerActive();
-    if (!recoveryScheduled) {
-      stopWorkingPlaceholder();
-    }
+    stopWorkingPlaceholder();
+    updateComposerEnabled();
   }
 }
 
@@ -903,9 +912,7 @@ chatForm.addEventListener("submit", async (event) => {
       showError(formatUserFacingError(error));
     }
   } finally {
-    stopWorkingPlaceholder();
-    ensureComposerActive();
-    if (isAuthenticated) {
+    if (isAuthenticated && !isWaitingForResponse()) {
       promptEl.focus();
     }
   }

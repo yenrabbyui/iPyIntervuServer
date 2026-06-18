@@ -11,8 +11,23 @@ import (
 
 var ipyintervuFenceStripPattern = regexp.MustCompile("(?is)```(?:json)?\\s*_ipy(?:intervu)?\\s*\\n.*?\\n```")
 
-// partialIPyIntervuFence matches a trailing incomplete _ipy / _ipyintervu fenced block.
-var partialIPyIntervuFence = regexp.MustCompile("(?is)```(?:json\\s*)?(?:_ipy(?:intervu)?[\\s\\S]*)?$")
+func stripTrailingPartialIPyFence(content string) string {
+	if strings.Count(content, "```") == 0 {
+		return content
+	}
+	if strings.Count(content, "```")%2 == 0 {
+		return content
+	}
+	open := strings.LastIndex(content, "```")
+	after := strings.TrimSpace(content[open+3:])
+	if after == "" ||
+		strings.HasPrefix(after, "json") ||
+		strings.HasPrefix(after, "_") ||
+		strings.HasPrefix(strings.ToLower(after), "_ipy") {
+		return strings.TrimRight(content[:open], " \t\n\r")
+	}
+	return content
+}
 
 // stripIPyIntervuTail removes complete _ipyintervu sync blocks from assistant text.
 func stripIPyIntervuTail(content string) string {
@@ -22,14 +37,7 @@ func stripIPyIntervuTail(content string) string {
 
 // clientVisibleAssistantContent is safe to stream/display (complete blocks removed, partial fence held back).
 func clientVisibleAssistantContent(accumulated string) string {
-	stripped := stripIPyIntervuTail(accumulated)
-	if loc := partialIPyIntervuFence.FindStringIndex(stripped); loc != nil {
-		matched := stripped[loc[0]:]
-		if strings.Count(matched, "```") < 2 {
-			stripped = strings.TrimRight(stripped[:loc[0]], " \t\n\r")
-		}
-	}
-	return stripped
+	return stripTrailingPartialIPyFence(stripIPyIntervuTail(accumulated))
 }
 
 func replaceAssistantContent(body []byte, content string) ([]byte, error) {
