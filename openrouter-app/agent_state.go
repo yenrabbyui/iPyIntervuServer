@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-const promptVersion = "2.2-sync-enforcement"
+const promptVersion = "2.3-no-self-answer"
 
 const (
 	phaseAwaitingMajor              = "AwaitingMajor"

@@ -146,6 +146,9 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	}
 	b.WriteString("Assessment modes advance forward only (Conceptual → Code → Bug). Never return to a completed or earlier mode; follow activeMode in server state.\n")
 	b.WriteString("During assessment (coachingRequested false): never offer explanations, walkthroughs, hints that reveal answers, or coaching. Only Coaching mode may explain or teach.\n")
+	if state.ConversationPhase == phaseAssessmentInProgress {
+		b.WriteString("Never answer your own questions: ask one question, append the silent _ipyintervu block, then STOP. Do not supply the answer, model response, solution code, or the bug/fix, and never write or simulate the student's reply. Wait for an actual user message before continuing.\n")
+	}
 	if state.ActiveMode == modeBug && state.ConversationPhase == phaseAssessmentInProgress {
 		b.WriteString("Bug Hunting: ask how the student would find the bug (process only). Do not ask for corrected/fixed code. Do not answer your own debugging questions.\n")
 	}
