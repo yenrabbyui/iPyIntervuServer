@@ -159,6 +159,9 @@ func isSimulatedStudentAnswerLine(line string) bool {
 	if simulatedStudentAnswerLinePattern.MatchString(line) {
 		return true
 	}
+	if simulatedStudentShortAnswerPattern.MatchString(line) {
+		return true
+	}
 	if first, _ := utf8.DecodeRuneInString(line); first != utf8.RuneError && unicode.IsLower(first) {
 		return true
 	}
@@ -287,6 +290,10 @@ func studentDirectedInterviewQuestions(visible string) []string {
 
 var simulatedStudentAnswerLinePattern = regexp.MustCompile(`(?i)^(a|an|the)\s+(table|list|report|chart|summary|output|result|spreadsheet|document|file|map|set)\b`)
 
+var simulatedStudentShortAnswerPattern = regexp.MustCompile(`(?i)^(the )?(type|value|result|answer|output) (would be|is|was)\b`)
+
+var neutralAssessmentLeadInPattern = regexp.MustCompile(`(?i)(?:^|\n)\s*(?:got it\.|thanks\.|understood\.|okay\.)\s`)
+
 // looksLikeCompositeAssessmentReply reports stacked interview content in one reply.
 func looksLikeCompositeAssessmentReply(visible string) bool {
 	visible = strings.TrimSpace(stripIPyIntervuTail(visible))
@@ -297,6 +304,26 @@ func looksLikeCompositeAssessmentReply(visible string) bool {
 		return true
 	}
 	return countStudentDirectedQuestions(visible) > 1
+}
+
+// looksLikeSevereCompositeReply reports stacked mini-interviews: simulated student
+// answers, multiple questions, or multiple neutral lead-ins in one reply.
+func looksLikeSevereCompositeReply(visible string) bool {
+	visible = strings.TrimSpace(stripCodeFences(stripIPyIntervuTail(visible)))
+	if visible == "" {
+		return false
+	}
+	if hasSimulatedStudentLineBetweenQuestions(visible) {
+		return true
+	}
+	if countStudentDirectedQuestions(visible) > 1 {
+		return true
+	}
+	return countNeutralAssessmentLeadIns(visible) > 1
+}
+
+func countNeutralAssessmentLeadIns(text string) int {
+	return len(neutralAssessmentLeadInPattern.FindAllStringIndex(text, -1))
 }
 
 func isCorrectiveFollowUpKind(kind string) bool {

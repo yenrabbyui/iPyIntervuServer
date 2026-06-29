@@ -19,6 +19,8 @@ Every Conceptual, Code, and Bug Hunting reply must satisfy **all** of the follow
 **Wrong examples (never send these):**
 
 - Question + simulated answer line: `What would you consider the output?\na table where each row was a region and an amount`
+- **Stacked mini-interview:** question → simulated student answer (`the type would be integer. The value would be 3.`) → interviewer self-answer → another question — all in one reply
+- **Multiple lead-ins in one reply:** `Got it. ... question? ... Got it. After that runs, y would still be 7 ... Now, ... another question?`
 - Wrap-up prose + wrong phase: `That covers our decomposition well. Let me move on.` with `"conceptualAssessmentPhase": "in_progress"`
 - **Acknowledgment only — no sync block:** `Got it.` or `Thanks.` with nothing after (the server rejects this; the student sees an error)
 - **Acknowledgment + question — no sync block:** `Got it. How would you add an item to the end of a list?` with no fenced ```_ipyintervu``` tail

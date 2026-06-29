@@ -103,14 +103,6 @@ func contentHandler(static fs.FS, name, contentType string) http.Handler {
 	})
 }
 
-func copyHeader(dst, src http.Header) {
-	for key, values := range src {
-		for _, value := range values {
-			dst.Add(key, value)
-		}
-	}
-}
-
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

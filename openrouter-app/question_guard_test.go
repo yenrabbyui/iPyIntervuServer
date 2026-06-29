@@ -150,6 +150,38 @@ func TestGuardQuestionOnlyResponseSimulatedStudentLine(t *testing.T) {
 	}
 }
 
+func TestGuardStackedMiniInterviewWithSimulatedAnswers(t *testing.T) {
+	visible := strings.Join([]string{
+		"Got it. At QuantCore, we often work with exact integer results. If you had meters = 7 and pieces = 2, what would the expression parts = meters // pieces produce, and what data type would it be?",
+		"the type would be integer. The value would be 3.",
+		"Got it. After that runs, y would still be 7 because Python evaluated y = x + 2 using the value of x at that moment (5), and reassigning x later does not retroactively update y.",
+		"",
+		"Now, at QuantCore we often work with area calculations. If a rectangle has width = 4 and height = 7, what expression would you write to compute its area, and what data type would the result be?",
+	}, "\n")
+	if !looksLikeSelfAnsweredQuestion(visible) {
+		t.Fatal("expected stacked mini-interview with simulated answers to be detected")
+	}
+	if !looksLikeCompositeAssessmentReply(visible) {
+		t.Fatal("expected multiple interview questions to be detected as composite")
+	}
+	if !looksLikeSevereCompositeReply(visible) {
+		t.Fatal("expected severe composite reply")
+	}
+	got := guardAssessmentContentResponse(visible)
+	if strings.Contains(got, "the type would be integer") {
+		t.Fatalf("expected simulated student answer stripped, got %q", got)
+	}
+	if strings.Contains(got, "y would still be 7") {
+		t.Fatalf("expected self-answered follow-up stripped, got %q", got)
+	}
+	if strings.Contains(got, "rectangle has width") {
+		t.Fatalf("expected second stacked question stripped, got %q", got)
+	}
+	if !strings.Contains(got, "meters // pieces") {
+		t.Fatalf("expected first question preserved, got %q", got)
+	}
+}
+
 func TestModeHandoffCodeIntroGuardBehavior(t *testing.T) {
 	handoff := "Thanks. That covers our conceptual questions on lists. I have what I need for this portion."
 	codeIncomplete := strings.Join([]string{

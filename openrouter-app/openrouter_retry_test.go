@@ -21,15 +21,6 @@ func TestIsRetryableOpenRouterError(t *testing.T) {
 	}
 }
 
-func TestIsRetryableStreamRelayError(t *testing.T) {
-	if isRetryableStreamRelayError(io.ErrUnexpectedEOF, true) {
-		t.Fatal("should not retry after data sent to client")
-	}
-	if !isRetryableStreamRelayError(io.ErrUnexpectedEOF, false) {
-		t.Fatal("should retry upstream read error before client data sent")
-	}
-}
-
 type fakeNetError struct {
 	timeout bool
 }

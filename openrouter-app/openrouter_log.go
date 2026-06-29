@@ -13,7 +13,7 @@ import (
 type openRouterLogCtx struct {
 	sessionID string
 	turnID    string
-	operation string // bootstrap, chat_stream, chat_body
+	operation string // bootstrap, chat_body
 	turn      int
 }
 
@@ -73,26 +73,14 @@ func classifyOpenRouterError(err error, sentToClient bool) string {
 	return "unknown_error"
 }
 
-func logOpenRouterStart(c openRouterLogCtx, attempt int, streaming bool) {
-	log.Printf("[openrouter] start session=%s turn_id=%s operation=%s mode_turn=%d attempt=%d/%d streaming=%v",
-		c.sessionShort(), truncateTurnID(c.turnID), c.operation, c.turn, attempt+1, openRouterMaxAttempts, streaming)
+func logOpenRouterStart(c openRouterLogCtx, attempt int) {
+	log.Printf("[openrouter] start session=%s turn_id=%s operation=%s mode_turn=%d attempt=%d/%d",
+		c.sessionShort(), truncateTurnID(c.turnID), c.operation, c.turn, attempt+1, openRouterMaxAttempts)
 }
 
 func logOpenRouterConnected(c openRouterLogCtx, attempt int, statusCode int, contentType string, elapsedMs int64) {
 	log.Printf("[openrouter] connected session=%s turn_id=%s operation=%s mode_turn=%d attempt=%d status=%d content_type=%q elapsed_ms=%d",
 		c.sessionShort(), truncateTurnID(c.turnID), c.operation, c.turn, attempt+1, statusCode, contentType, elapsedMs)
-}
-
-func logOpenRouterStreamDone(c openRouterLogCtx, attempt int, result relaySSEResult, elapsedMs int64) {
-	failureClass := classifyOpenRouterError(result.err, result.sentToClient)
-	if result.err != nil {
-		log.Printf("[openrouter] stream_end session=%s turn_id=%s operation=%s mode_turn=%d attempt=%d failure_point=%s failure_class=%s sent_to_client=%v assistant_chars=%d elapsed_ms=%d err=%q",
-			c.sessionShort(), truncateTurnID(c.turnID), c.operation, c.turn, attempt+1, result.failurePoint, failureClass,
-			result.sentToClient, len(result.assistant), elapsedMs, result.err.Error())
-		return
-	}
-	log.Printf("[openrouter] stream_ok session=%s turn_id=%s operation=%s mode_turn=%d attempt=%d sent_to_client=%v assistant_chars=%d elapsed_ms=%d",
-		c.sessionShort(), truncateTurnID(c.turnID), c.operation, c.turn, attempt+1, result.sentToClient, len(result.assistant), elapsedMs)
 }
 
 func logOpenRouterFailure(c openRouterLogCtx, attempt int, failurePoint string, err error, sentToClient bool, extra string) {

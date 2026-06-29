@@ -76,6 +76,38 @@ func TestPostProcessContentWithSyncNoRetry(t *testing.T) {
 	}
 }
 
+func TestPostProcessSevereCompositeWithSyncCorrectiveRetry(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase: phaseAssessmentInProgress,
+		ActiveMode:        modeConceptual,
+		CurrentWeekNumber: 2,
+	}
+	assistant := strings.Join([]string{
+		"Got it. At QuantCore, we often work with exact integer results. If you had meters = 7 and pieces = 2, what would the expression parts = meters // pieces produce, and what data type would it be?",
+		"the type would be integer. The value would be 3.",
+		"Got it. After that runs, y would still be 7 because Python evaluated y = x + 2 using the value of x at that moment (5), and reassigning x later does not retroactively update y.",
+		"",
+		"Now, at QuantCore we often work with area calculations. If a rectangle has width = 4 and height = 7, what expression would you write to compute its area, and what data type would the result be?",
+		"",
+		"```_ipyintervu",
+		"{\"conceptualAssessmentPhase\": \"in_progress\"}",
+		"```",
+	}, "\n")
+
+	v := detectAssessmentViolations(state, assistant)
+	if !v.SevereContent {
+		t.Fatal("expected severe composite violation")
+	}
+	if !v.NeedsCorrectiveRetry() {
+		t.Fatal("expected corrective retry for severe composite even with sync")
+	}
+
+	followUp := postProcessAssistantTurn(state, assistant, false, nil)
+	if followUp.Kind != "corrective_retry" || !followUp.ContinueTurn {
+		t.Fatalf("expected corrective_retry, got %+v", followUp)
+	}
+}
+
 func TestPostProcessSimulatedStudentLineCorrectiveRetry(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase: phaseAssessmentInProgress,
@@ -132,35 +164,6 @@ func TestWeek1CompleteBucketUsesServerResults(t *testing.T) {
 	}
 	if state.ConversationPhase != phaseAssessmentResults {
 		t.Fatalf("ConversationPhase = %q, want %q", state.ConversationPhase, phaseAssessmentResults)
-	}
-}
-
-func TestShouldBufferPreResultsStream(t *testing.T) {
-	week1 := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeConceptual,
-		CurrentWeekNumber: 1,
-	}
-	if !shouldBufferPreResultsStream(week1) {
-		t.Fatal("expected Week 1 conceptual stream to buffer")
-	}
-
-	week8Conceptual := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeConceptual,
-		CurrentWeekNumber: 8,
-	}
-	if shouldBufferPreResultsStream(week8Conceptual) {
-		t.Fatal("week 8 conceptual should not buffer")
-	}
-
-	week8Bug := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeBug,
-		CurrentWeekNumber: 8,
-	}
-	if !shouldBufferPreResultsStream(week8Bug) {
-		t.Fatal("week 8 bug stream should buffer")
 	}
 }
 

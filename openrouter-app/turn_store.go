@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"sync"
 	"time"
 )
 
 const (
-	turnIDHeader     = "X-Turn-Id"
-	bootstrapTurnID  = "ipyintervu-bootstrap"
+	turnIDHeader       = "X-Turn-Id"
+	bootstrapTurnID    = "ipyintervu-bootstrap"
 	maxTurnsPerSession = 32
 )
 
@@ -37,110 +36,77 @@ type turnAcquireResult struct {
 	role   turnRole
 }
 
-type sharedTurnStream struct {
+type turnWaitState struct {
 	mu               sync.Mutex
-	chunks           []string
-	visibleAssistant string
-	rawAssistant     string
 	done             bool
 	failed           bool
+	rawAssistant     string
+	visibleAssistant string
+	responseBody     []byte
+	statusCode       int
 	notify           chan struct{}
 	resumeClaimed    bool
 }
 
-func newSharedTurnStream() *sharedTurnStream {
-	return &sharedTurnStream{
+func newTurnWaitState() *turnWaitState {
+	return &turnWaitState{
 		notify: make(chan struct{}, 1),
 	}
 }
 
-func (s *sharedTurnStream) signalWaiters() {
+func (s *turnWaitState) signalWaiters() {
 	select {
 	case s.notify <- struct{}{}:
 	default:
 	}
 }
 
-func (s *sharedTurnStream) appendChunk(ssePart, rawAssistant, visibleAssistant string) {
-	s.mu.Lock()
-	s.chunks = append(s.chunks, ssePart)
-	s.rawAssistant = rawAssistant
-	s.visibleAssistant = visibleAssistant
-	s.mu.Unlock()
-	s.signalWaiters()
-}
-
-func (s *sharedTurnStream) markDone(rawAssistant, visibleAssistant string, failed bool) {
+func (s *turnWaitState) markDone(rawAssistant, visibleAssistant string, responseBody []byte, statusCode int, failed bool) {
 	s.mu.Lock()
 	s.rawAssistant = rawAssistant
 	s.visibleAssistant = visibleAssistant
+	s.responseBody = responseBody
+	s.statusCode = statusCode
 	s.done = true
 	s.failed = failed
 	s.mu.Unlock()
 	s.signalWaiters()
 }
 
-func (s *sharedTurnStream) follow(w http.ResponseWriter, ctx context.Context) error {
-	idx := 0
-	keepalive := time.NewTicker(12 * time.Second)
-	defer keepalive.Stop()
+func (s *turnWaitState) wait(ctx context.Context) bool {
 	for {
 		s.mu.Lock()
-		for idx < len(s.chunks) {
-			part := s.chunks[idx]
-			idx++
+		if s.done {
 			s.mu.Unlock()
-			if _, err := w.Write([]byte(part + "\n\n")); err != nil {
-				return err
-			}
-			flushResponseWriter(w)
-			s.mu.Lock()
+			return true
 		}
-		done := s.done
+		notify := s.notify
 		s.mu.Unlock()
-		if done {
-			return nil
-		}
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.notify:
-		case <-keepalive.C:
-			writeSSEKeepalive(w)
+			return false
+		case <-notify:
 		}
 	}
 }
 
-func (s *sharedTurnStream) resetForCorrectiveRetry() {
+func (s *turnWaitState) snapshot() (responseBody []byte, statusCode int, failed bool, ok bool) {
 	s.mu.Lock()
-	s.chunks = nil
-	s.visibleAssistant = ""
-	s.rawAssistant = ""
-	s.mu.Unlock()
-	s.signalWaiters()
-}
-
-func (s *sharedTurnStream) replayExistingTo(w io.Writer) error {
-	s.mu.Lock()
-	chunks := append([]string(nil), s.chunks...)
-	s.mu.Unlock()
-	for _, part := range chunks {
-		if _, err := w.Write([]byte(part + "\n\n")); err != nil {
-			return err
-		}
-		flushResponseWriter(w)
+	defer s.mu.Unlock()
+	if !s.done {
+		return nil, 0, false, false
 	}
-	return nil
+	return s.responseBody, s.statusCode, s.failed, true
 }
 
-func (s *sharedTurnStream) resetResumeClaim() {
+func (s *turnWaitState) resetResumeClaim() {
 	s.mu.Lock()
 	s.resumeClaimed = false
 	s.mu.Unlock()
 }
 
-func (s *sharedTurnStream) tryClaimResume() bool {
+func (s *turnWaitState) tryClaimResume() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.resumeClaimed || !s.failed || !s.done {
@@ -155,7 +121,7 @@ func (s *sharedTurnStream) tryClaimResume() bool {
 type chatTurnRecord struct {
 	turnID    string
 	status    turnStatus
-	stream    *sharedTurnStream
+	wait      *turnWaitState
 	createdAt time.Time
 	updatedAt time.Time
 }
@@ -200,7 +166,7 @@ func (s *turnStore) acquire(sessionID, turnID string) turnAcquireResult {
 		rec = &chatTurnRecord{
 			turnID:    turnID,
 			status:    turnInProgress,
-			stream:    newSharedTurnStream(),
+			wait:      newTurnWaitState(),
 			createdAt: time.Now(),
 			updatedAt: time.Now(),
 		}
@@ -215,7 +181,7 @@ func (s *turnStore) acquire(sessionID, turnID string) turnAcquireResult {
 	case turnCompleted:
 		return turnAcquireResult{record: rec, role: turnRoleReplayCompleted}
 	case turnFailed:
-		if rec.stream.tryClaimResume() {
+		if rec.wait.tryClaimResume() {
 			rec.status = turnInProgress
 			rec.updatedAt = time.Now()
 			return turnAcquireResult{record: rec, role: turnRoleResumeLeader}
@@ -242,7 +208,7 @@ func (s *turnStore) trimTurns(sessionID string) {
 	delete(turns, oldestID)
 }
 
-func (s *turnStore) completeTurn(sessionID, turnID, rawAssistant, visibleAssistant string) {
+func (s *turnStore) completeTurn(sessionID, turnID, rawAssistant, visibleAssistant string, responseBody []byte, statusCode int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec := s.sessions[sessionID][turnID]
@@ -251,10 +217,10 @@ func (s *turnStore) completeTurn(sessionID, turnID, rawAssistant, visibleAssista
 	}
 	rec.status = turnCompleted
 	rec.updatedAt = time.Now()
-	rec.stream.markDone(rawAssistant, visibleAssistant, false)
+	rec.wait.markDone(rawAssistant, visibleAssistant, responseBody, statusCode, false)
 }
 
-func (s *turnStore) failTurn(sessionID, turnID, rawAssistant, visibleAssistant string) {
+func (s *turnStore) failTurn(sessionID, turnID, rawAssistant, visibleAssistant string, responseBody []byte, statusCode int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec := s.sessions[sessionID][turnID]
@@ -263,8 +229,23 @@ func (s *turnStore) failTurn(sessionID, turnID, rawAssistant, visibleAssistant s
 	}
 	rec.status = turnFailed
 	rec.updatedAt = time.Now()
-	rec.stream.resetResumeClaim()
-	rec.stream.markDone(rawAssistant, visibleAssistant, true)
+	rec.wait.resetResumeClaim()
+	rec.wait.markDone(rawAssistant, visibleAssistant, responseBody, statusCode, true)
+}
+
+func writeTurnResponse(w http.ResponseWriter, rec *chatTurnRecord) {
+	body, statusCode, failed, ok := rec.wait.snapshot()
+	if !ok || len(body) == 0 {
+		if failed {
+			http.Error(w, "upstream error", http.StatusBadGateway)
+			return
+		}
+		http.Error(w, "turn not ready", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(body)
 }
 
 func (s *turnStore) getBootstrapAssistant(sessionID string) (string, bool) {
@@ -357,17 +338,10 @@ func (s *turnStore) cleanupLoop() {
 			}
 		}
 		for sessionID := range s.bootstrap {
-			// bootstrap entries expire with session turns cleanup pass
 			if _, ok := s.sessions[sessionID]; !ok {
 				delete(s.bootstrap, sessionID)
 			}
 		}
 		s.mu.Unlock()
-	}
-}
-
-func flushResponseWriter(w io.Writer) {
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
 	}
 }

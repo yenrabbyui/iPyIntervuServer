@@ -47,16 +47,6 @@ func isRetryableOpenRouterStatus(status int) bool {
 		status == http.StatusGatewayTimeout
 }
 
-func isRetryableStreamRelayError(err error, sentToClient bool) bool {
-	if err == nil || sentToClient {
-		return false
-	}
-	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
-		return false
-	}
-	return isRetryableOpenRouterError(err)
-}
-
 func openRouterRetryDelay(attempt int) time.Duration {
 	return openRouterRetryBase * time.Duration(attempt+1)
 }
@@ -93,7 +83,7 @@ func readOpenRouterBodyWithRetry(ctx context.Context, apiKey string, payload []b
 		}
 
 		attemptStarted := time.Now()
-		logOpenRouterStart(logCtx, attempt, false)
+		logOpenRouterStart(logCtx, attempt)
 
 		resp, err := postOpenRouterOnce(ctx, apiKey, payload)
 		if err != nil {

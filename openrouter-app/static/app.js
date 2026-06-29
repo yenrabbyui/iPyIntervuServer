@@ -25,8 +25,8 @@ let chatInFlight = false;
 const MAX_USER_MESSAGE_CHARS = 5000;
 const MAX_CHAT_RETRIES = 20;
 const CHAT_RETRY_DELAY_MS = 1500;
-const MAX_STREAM_RECOVERY_ATTEMPTS = 4;
-const STREAM_READ_TIMEOUT_MS = 120_000;
+const MAX_CHAT_RECOVERY_ATTEMPTS = 4;
+const CHAT_READ_TIMEOUT_MS = 120_000;
 const BOOTSTRAP_TURN_ID = "ipyintervu-bootstrap";
 const CHAT_MODEL = "deepseek/deepseek-v4-flash";
 const TURN_ID_HEADER = "X-Turn-Id";
@@ -172,11 +172,10 @@ async function recoverChatTurn(turnId) {
 
   for (let attempt = 0; attempt <= MAX_CHAT_RETRIES; attempt++) {
     try {
-      await executeChatStream({
+      await executeChatRequest({
         turnId,
         resetAssistant: true,
         silentReplay: true,
-        replaceContent: true,
       });
       refreshSessionState().catch(() => {});
       return;
@@ -196,13 +195,12 @@ async function recoverChatTurn(turnId) {
     }
   }
 
-  for (let recovery = 0; recovery <= MAX_STREAM_RECOVERY_ATTEMPTS; recovery++) {
+  for (let recovery = 0; recovery <= MAX_CHAT_RECOVERY_ATTEMPTS; recovery++) {
     try {
-      await executeChatStream({
+      await executeChatRequest({
         turnId,
         resetAssistant: true,
         silentReplay: true,
-        replaceContent: true,
       });
       refreshSessionState().catch(() => {});
       return;
@@ -578,18 +576,6 @@ function renderMessages() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function appendAssistantDelta(delta, { deferRender = false } = {}) {
-  const last = conversation[conversation.length - 1];
-  if (!last || last.role !== "assistant") {
-    conversation.push({ role: "assistant", content: delta });
-  } else {
-    last.content += delta;
-  }
-  if (!deferRender) {
-    renderMessages();
-  }
-}
-
 function showError(text) {
   conversation.push({ role: "error", content: text });
   renderMessages();
@@ -619,7 +605,7 @@ function isRetryableNetworkError(error) {
     lowered === "load failed" ||
     lowered === "failed to fetch" ||
     lowered.includes("networkerror") ||
-    lowered.includes("stream read timed out") ||
+    lowered.includes("request timed out") ||
     (error instanceof TypeError && lowered.includes("fetch"))
   );
 }
@@ -637,43 +623,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseSSEChunk(chunk, onDelta, onReset) {
-  const lines = chunk.split("\n");
-  let eventName = "";
-
-  for (const line of lines) {
-    if (line.startsWith("event: ")) {
-      eventName = line.slice(7).trim();
-      continue;
-    }
-    if (!line.startsWith("data: ")) {
-      continue;
-    }
-
-    const data = line.slice(6).trim();
-    if (eventName === "ipyintervu_reset") {
-      onReset?.();
-      eventName = "";
-      continue;
-    }
-    if (!data || data === "[DONE]") {
-      continue;
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(data);
-    } catch {
-      continue;
-    }
-
-    const delta = payload.choices?.[0]?.delta?.content;
-    if (delta) {
-      onDelta(delta);
-    }
-  }
-}
-
 function chatPayloadMessages() {
   return conversation
     .filter(
@@ -688,11 +637,10 @@ function chatPayloadMessages() {
     }));
 }
 
-async function executeChatStream({
+async function executeChatRequest({
   turnId,
   resetAssistant,
   silentReplay = false,
-  replaceContent = false,
 }) {
   if (activeChatAbort) {
     activeChatAbort.abort();
@@ -701,55 +649,15 @@ async function executeChatStream({
   const controller = new AbortController();
   activeChatAbort = controller;
   const timeoutId = setTimeout(() => {
-    controller.abort(new DOMException("Stream read timed out", "TimeoutError"));
-  }, STREAM_READ_TIMEOUT_MS);
-
-  let deferRender = false;
-  let streamBuffer = replaceContent ? "" : null;
-
-  function applyStreamBuffer() {
-    if (!replaceContent) {
-      return;
-    }
-    const last = conversation[conversation.length - 1];
-    if (last?.role === "assistant") {
-      last.content = stripClientVisibleAssistantContent(streamBuffer);
-      if (!deferRender) {
-        renderMessages();
-      }
-    }
-  }
-
-  function onStreamReset() {
-    if (replaceContent) {
-      streamBuffer = "";
-    }
-    const last = conversation[conversation.length - 1];
-    if (last?.role === "assistant") {
-      last.content = "";
-      if (!deferRender) {
-        renderMessages();
-      }
-    }
-  }
-
-  function onStreamDelta(delta) {
-    if (replaceContent) {
-      streamBuffer += delta;
-      applyStreamBuffer();
-      return;
-    }
-    appendAssistantDelta(delta, { deferRender });
-  }
+    controller.abort(new DOMException("Request timed out", "TimeoutError"));
+  }, CHAT_READ_TIMEOUT_MS);
 
   try {
     if (resetAssistant) {
       const last = conversation[conversation.length - 1];
       if (last?.role === "assistant") {
         last.content = "";
-        if (silentReplay) {
-          deferRender = true;
-        } else {
+        if (!silentReplay) {
           renderMessages();
         }
       }
@@ -758,7 +666,6 @@ async function executeChatStream({
     const payload = {
       model: CHAT_MODEL,
       messages: chatPayloadMessages(),
-      stream: true,
     };
 
     const response = await fetch("/api/chat", {
@@ -783,70 +690,17 @@ async function executeChatStream({
       throw new Error(errorText || `Request failed with status ${response.status}`);
     }
 
-    const contentType = response.headers.get("Content-Type") || "";
-
-    if (!contentType.includes("text/event-stream")) {
-      const data = await response.json();
-      const content = stripClientVisibleAssistantContent(
-        data.choices?.[0]?.message?.content || ""
-      );
-      const last = conversation[conversation.length - 1];
-      if (last?.role === "assistant") {
-        last.content = content;
-      } else {
-        conversation.push({ role: "assistant", content });
-      }
-      renderMessages();
-      refreshSessionState().catch(() => {});
-      return;
+    const data = await response.json();
+    const content = stripClientVisibleAssistantContent(
+      data.choices?.[0]?.message?.content || ""
+    );
+    const last = conversation[conversation.length - 1];
+    if (last?.role === "assistant") {
+      last.content = content;
+    } else {
+      conversation.push({ role: "assistant", content });
     }
-
-    let assistantSlot = conversation[conversation.length - 1];
-    if (!assistantSlot || assistantSlot.role !== "assistant") {
-      conversation.push({ role: "assistant", content: "" });
-      assistantSlot = conversation[conversation.length - 1];
-      renderMessages();
-      deferRender = false;
-    } else if (resetAssistant) {
-      assistantSlot.content = "";
-      if (!silentReplay) {
-        renderMessages();
-      } else {
-        deferRender = true;
-      }
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() || "";
-
-      for (const part of parts) {
-        parseSSEChunk(part, onStreamDelta, onStreamReset);
-      }
-    }
-
-    if (buffer) {
-      parseSSEChunk(buffer, onStreamDelta, onStreamReset);
-    }
-
-    if (replaceContent) {
-      applyStreamBuffer();
-    }
-
-    if (deferRender) {
-      renderMessages();
-    }
-
+    renderMessages();
     refreshSessionState().catch(() => {});
   } finally {
     clearTimeout(timeoutId);
@@ -874,7 +728,7 @@ async function sendMessage(text) {
     renderMessages();
 
     try {
-      await executeChatStream({ turnId, resetAssistant: false });
+      await executeChatRequest({ turnId, resetAssistant: false });
       refreshSessionState().catch(() => {});
     } catch (error) {
       if (error.message === "Authentication required.") {

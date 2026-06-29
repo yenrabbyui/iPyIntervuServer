@@ -22,7 +22,6 @@ func resolveChatModel(model string) string {
 type chatCompletionRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
-	Stream   bool          `json:"stream,omitempty"`
 }
 
 type chatMessage struct {
@@ -43,14 +42,6 @@ type openRouterCompletion struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
-	} `json:"choices"`
-}
-
-type openRouterStreamChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
 	} `json:"choices"`
 }
 
@@ -213,28 +204,6 @@ func extractAssistantContent(body []byte) string {
 		return ""
 	}
 	return completion.Choices[0].Message.Content
-}
-
-func parseSSEAssistantDelta(part string) string {
-	var collected strings.Builder
-	for _, line := range strings.Split(part, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-		var chunk openRouterStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-		if len(chunk.Choices) > 0 {
-			collected.WriteString(chunk.Choices[0].Delta.Content)
-		}
-	}
-	return collected.String()
 }
 
 func handleSessionState(states *agentStateStore) http.HandlerFunc {

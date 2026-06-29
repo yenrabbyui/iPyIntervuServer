@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +27,8 @@ func TestTurnStoreAcquireLeaderAndFollower(t *testing.T) {
 		t.Fatalf("second role = %v, want follower", second.role)
 	}
 
-	store.completeTurn(sessionID, turnID, "raw assistant", "visible assistant")
+	body := []byte(`{"choices":[{"message":{"content":"visible assistant"}}]}`)
+	store.completeTurn(sessionID, turnID, "raw assistant", "visible assistant", body, 200)
 
 	third := store.acquire(sessionID, turnID)
 	if third.role != turnRoleReplayCompleted {
@@ -34,40 +36,44 @@ func TestTurnStoreAcquireLeaderAndFollower(t *testing.T) {
 	}
 }
 
-func TestSharedTurnStreamFollow(t *testing.T) {
-	stream := newSharedTurnStream()
-	stream.appendChunk("data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}", "Hi", "Hi")
-	stream.markDone("Hi there", "Hi there", false)
-
-	rec := httptest.NewRecorder()
-	if err := stream.follow(rec, context.Background()); err != nil {
-		t.Fatalf("follow returned error: %v", err)
-	}
-
-	body := rec.Body.String()
-	if !strings.Contains(body, "Hi") {
-		t.Fatalf("unexpected follow body: %q", body)
-	}
-}
-
-func TestSharedTurnStreamFollowLive(t *testing.T) {
-	stream := newSharedTurnStream()
-	done := make(chan error, 1)
-	rec := httptest.NewRecorder()
+func TestTurnWaitStateFollowerWaitsForCompletion(t *testing.T) {
+	wait := newTurnWaitState()
+	done := make(chan bool, 1)
 
 	go func() {
-		done <- stream.follow(rec, context.Background())
+		done <- wait.wait(context.Background())
 	}()
 
 	time.Sleep(20 * time.Millisecond)
-	stream.appendChunk("data: {\"choices\":[{\"delta\":{\"content\":\"Live\"}}]}", "Live", "Live")
-	stream.markDone("Live", "Live", false)
+	body := []byte(`{"choices":[{"message":{"content":"Live"}}]}`)
+	wait.markDone("Live", "Live", body, 200, false)
 
-	if err := <-done; err != nil {
-		t.Fatalf("follow returned error: %v", err)
+	if ok := <-done; !ok {
+		t.Fatal("wait returned false")
 	}
-	if !strings.Contains(rec.Body.String(), "Live") {
-		t.Fatalf("missing live chunk: %q", rec.Body.String())
+
+	snapshot, statusCode, failed, ok := wait.snapshot()
+	if !ok || failed || statusCode != 200 {
+		t.Fatalf("unexpected snapshot ok=%v failed=%v status=%d", ok, failed, statusCode)
+	}
+	if string(snapshot) != string(body) {
+		t.Fatalf("unexpected body %q", snapshot)
+	}
+}
+
+func TestWriteTurnResponse(t *testing.T) {
+	rec := httptest.NewRecorder()
+	wait := newTurnWaitState()
+	body := []byte(`{"choices":[{"message":{"content":"Hello world"}}]}`)
+	wait.markDone("Hello world", "Hello world", body, 200, false)
+
+	writeTurnResponse(rec, &chatTurnRecord{wait: wait})
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Body.String() != string(body) {
+		t.Fatalf("unexpected body %q", rec.Body.String())
 	}
 }
 
@@ -77,7 +83,7 @@ func TestTurnStoreFailedPartialResume(t *testing.T) {
 	turnID := "turn-b"
 
 	store.acquire(sessionID, turnID)
-	store.failTurn(sessionID, turnID, "partial raw", "partial visible")
+	store.failTurn(sessionID, turnID, "partial raw", "partial visible", nil, http.StatusBadGateway)
 
 	resume := store.acquire(sessionID, turnID)
 	if resume.role != turnRoleResumeLeader {
@@ -107,16 +113,17 @@ func TestBootstrapFlight(t *testing.T) {
 	}
 }
 
-func TestWriteSSEReplayFromVisible(t *testing.T) {
-	rec := httptest.NewRecorder()
-	if err := writeSSEReplayFromVisible(rec, "Hello world"); err != nil {
-		t.Fatalf("writeSSEReplayFromVisible: %v", err)
+func TestReplaceAssistantContent(t *testing.T) {
+	raw := []byte(`{"choices":[{"message":{"content":"before"}}]}`)
+	updated, err := replaceAssistantContent(raw, "after")
+	if err != nil {
+		t.Fatalf("replaceAssistantContent: %v", err)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "Hello world") {
-		t.Fatalf("missing content in replay: %q", body)
+	var completion openRouterCompletion
+	if err := json.Unmarshal(updated, &completion); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if !strings.Contains(body, "data: [DONE]") {
-		t.Fatalf("missing DONE in replay: %q", body)
+	if completion.Choices[0].Message.Content != "after" {
+		t.Fatalf("content = %q, want after", completion.Choices[0].Message.Content)
 	}
 }

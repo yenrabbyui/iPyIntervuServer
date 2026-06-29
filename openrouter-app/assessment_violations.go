@@ -7,20 +7,21 @@ import (
 
 type assessmentViolations struct {
 	Content               bool
+	SevereContent         bool
 	MissingSync           bool
 	CompleteWithoutBucket bool
 }
 
 func (v assessmentViolations) Any() bool {
-	return v.Content || v.MissingSync || v.CompleteWithoutBucket
+	return v.Content || v.SevereContent || v.MissingSync || v.CompleteWithoutBucket
 }
 
 func (v assessmentViolations) NeedsTruncateOnly() bool {
-	return v.Content && !v.MissingSync && !v.CompleteWithoutBucket
+	return v.Content && !v.SevereContent && !v.MissingSync && !v.CompleteWithoutBucket
 }
 
 func (v assessmentViolations) NeedsCorrectiveRetry() bool {
-	return v.MissingSync || v.CompleteWithoutBucket
+	return v.MissingSync || v.CompleteWithoutBucket || v.SevereContent
 }
 
 func (v assessmentViolations) StillInvalidAfterRetry() bool {
@@ -46,6 +47,9 @@ func detectAssessmentViolations(state *AgentSessionState, assistant string) asse
 	}
 	if looksLikeSelfAnsweredQuestion(trimmed) || looksLikeCompositeAssessmentReply(trimmed) {
 		v.Content = true
+		if looksLikeSevereCompositeReply(trimmed) {
+			v.SevereContent = true
+		}
 	}
 	return v
 }
@@ -54,8 +58,8 @@ func logAssessmentViolations(sessionID, turnID string, modeTurn int, v assessmen
 	if !v.Any() {
 		return
 	}
-	log.Printf("[openrouter] assessment_violations session=%s turn_id=%s mode_turn=%d content=%v missing_sync=%v complete_without_bucket=%v",
-		truncateSessionID(sessionID), truncateTurnID(turnID), modeTurn, v.Content, v.MissingSync, v.CompleteWithoutBucket)
+	log.Printf("[openrouter] assessment_violations session=%s turn_id=%s mode_turn=%d content=%v severe_content=%v missing_sync=%v complete_without_bucket=%v",
+		truncateSessionID(sessionID), truncateTurnID(turnID), modeTurn, v.Content, v.SevereContent, v.MissingSync, v.CompleteWithoutBucket)
 }
 
 func buildViolationIssueText(v assessmentViolations, phaseField, bucketField string) string {
@@ -146,17 +150,4 @@ func buildServerAssessmentResultsMessage(state *AgentSessionState) string {
 
 func buildAssessmentTurnFailureMessage() string {
 	return "I'm sorry — I hit a temporary issue finishing that assessment step. Please send your last answer again or ask to continue, and we'll pick up from here."
-}
-
-// shouldBufferPreResultsStream holds client-visible SSE until the turn finishes when
-// the active mode is the final assessment mode for the week. That lets server-rendered
-// Assessment Results replace a model closing line without a flash.
-func shouldBufferPreResultsStream(state *AgentSessionState) bool {
-	if state == nil || state.ConversationPhase != phaseAssessmentInProgress {
-		return false
-	}
-	if state.isProblemDecompositionWeek() {
-		return state.ActiveMode == modeConceptual
-	}
-	return state.ActiveMode == modeBug
 }
