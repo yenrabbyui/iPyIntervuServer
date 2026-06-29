@@ -117,10 +117,10 @@ func assessmentSyncPromptForState(state *AgentSessionState) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"MANDATORY THIS TURN (%s): End your reply with ```_ipyintervu``` as the last lines. "+
-			"While interviewing include only {\"%s\": \"in_progress\"}. "+
-			"When finishing this mode include \"%s\": \"complete\" and \"%s\". "+
-			"Omitting the block forces a server retry and delays the student. Never mention the sync block in interview text.\n",
+		"MANDATORY THIS TURN (%s): End your reply with ```_ipyintervu``` JSON as the absolute last lines — the reply is INCOMPLETE without it. Do not stop after Got it./Thanks. alone; append the fence in the same reply. "+
+			"While interviewing include ONLY {\"%s\": \"in_progress\"}. "+
+			"When finishing this mode include \"%s\": \"complete\" and \"%s\" in the same fence. "+
+			"Omitting the block forces a server retry and may fail closed. Never mention the sync block in interview text.\n",
 		label, phaseField, phaseField, bucketField,
 	)
 }
@@ -139,7 +139,7 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	b.WriteString("\n\n")
 	b.WriteString("Knowledge-base files injected for this turn appear below. Use only those filenames.\n")
 	b.WriteString("Honor assessmentWeekScope in server state: never require concepts from weeks after currentWeekNumber.\n")
-	b.WriteString("ASSESSMENT SYNC (mandatory): Every Conceptual/Code/Bug reply MUST end with ```_ipyintervu``` JSON as the last lines — introductions, acknowledgments, and every question. Missing sync triggers a server corrective round-trip.\n")
+	b.WriteString("ASSESSMENT SYNC (mandatory): Every Conceptual/Code/Bug reply MUST end with ```_ipyintervu``` JSON as the absolute last lines — introductions, acknowledgments (Got it./Thanks.), follow-ups, and mode handoffs. A reply without the fence is incomplete even when the interview text looks done. Do not stop generating until the closing ``` fence is written. Missing sync triggers a server corrective retry and may fail closed after one retry.\n")
 	b.WriteString("Use assessmentPhase \"in_progress\" while asking interview questions (omit bucket). Use assessmentPhase \"complete\" plus the bucket when finishing that mode. Mode transitions require complete plus a valid bucket.\n")
 	if syncLine := assessmentSyncPromptForState(state); syncLine != "" {
 		b.WriteString(syncLine)
@@ -148,6 +148,10 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	b.WriteString("During assessment (coachingRequested false): never offer explanations, walkthroughs, hints that reveal answers, or coaching. Only Coaching mode may explain or teach.\n")
 	if state.ConversationPhase == phaseAssessmentInProgress {
 		b.WriteString("Never answer your own questions: ask one question, append the silent _ipyintervu block, then STOP. Do not supply the answer, model response, solution code, or the bug/fix, and never write or simulate the student's reply. Wait for an actual user message before continuing.\n")
+		b.WriteString("Ask exactly ONE interview question per reply. Never stack multiple questions, repeat the same question in different words, or combine several acknowledgments with several questions in one message.\n")
+	}
+	if state.ActiveMode == modeCode && state.ConversationPhase == phaseAssessmentInProgress && !state.isProblemDecompositionWeek() {
+		b.WriteString("CODE PROBLEM SEQUENCE: (1) task decomposition question, (2) after student answers ask them to paste Python code, (3) evaluate pasted code and explain/AI questions, (4) complete plus bucket. Never complete after decomposition alone.\n")
 	}
 	if state.ActiveMode == modeBug && state.ConversationPhase == phaseAssessmentInProgress {
 		b.WriteString("Bug Hunting: ask how the student would find the bug (process only). Do not ask for corrected/fixed code. Do not answer your own debugging questions.\n")

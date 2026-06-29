@@ -14,7 +14,12 @@ func writeSSEStreamHeaders(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func writeSSEReplayFromVisible(w http.ResponseWriter, visible string) error {
+func writeSSEReset(w http.ResponseWriter) {
+	_, _ = w.Write([]byte("event: ipyintervu_reset\ndata: {}\n\n"))
+	flushResponseWriter(w)
+}
+
+func writeSSEReplayDeltas(w http.ResponseWriter, visible string) error {
 	for i := 0; i < len(visible); i += sseReplayChunkSize {
 		end := i + sseReplayChunkSize
 		if end > len(visible) {
@@ -23,6 +28,14 @@ func writeSSEReplayFromVisible(w http.ResponseWriter, visible string) error {
 		if err := writeSSEContentDelta(w, visible[i:end]); err != nil {
 			return err
 		}
+	}
+	flushResponseWriter(w)
+	return nil
+}
+
+func writeSSEReplayFromVisible(w http.ResponseWriter, visible string) error {
+	if err := writeSSEReplayDeltas(w, visible); err != nil {
+		return err
 	}
 	_, err := w.Write([]byte("data: [DONE]\n\n"))
 	flushResponseWriter(w)

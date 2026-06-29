@@ -96,25 +96,8 @@ func TestAssessmentSyncRetryOnMissingIPyBlock(t *testing.T) {
 	assistant := "What would you do if the user enters an invalid menu choice?"
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind != "assessment_sync" || !followUp.ContinueTurn {
-		t.Fatalf("expected assessment_sync follow-up, got %+v", followUp)
-	}
-}
-
-func TestAssessmentSyncRetryOnWrapUpWithoutComplete(t *testing.T) {
-	state := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeConceptual,
-		CurrentWeekNumber: 8,
-	}
-	assistant := "Thanks for those answers. Let's move on to the coding portion now.\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"in_progress\"}\n```"
-
-	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind != "assessment_sync" || !followUp.ContinueTurn {
-		t.Fatalf("expected assessment_sync follow-up, got %+v", followUp)
-	}
-	if state.ActiveMode != modeConceptual {
-		t.Fatalf("ActiveMode = %q, want conceptual until complete", state.ActiveMode)
+	if followUp.Kind != "corrective_retry" || !followUp.ContinueTurn {
+		t.Fatalf("expected corrective_retry follow-up, got %+v", followUp)
 	}
 }
 
@@ -127,8 +110,8 @@ func TestPostProcessBucketSyncThenModeTransition(t *testing.T) {
 	wrapUp := "Thanks. Let's move on to the coding portion."
 
 	syncFollowUp := postProcessAssistantTurn(state, wrapUp, false, nil)
-	if syncFollowUp.Kind != "assessment_sync" {
-		t.Fatalf("expected assessment_sync, got %+v", syncFollowUp)
+	if syncFollowUp.Kind != "corrective_retry" {
+		t.Fatalf("expected corrective_retry for missing block, got %+v", syncFollowUp)
 	}
 
 	bucketReply := "Understood.\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"complete\", \"conceptualAssessmentBucket\": \"Competent\"}\n```"
@@ -141,22 +124,73 @@ func TestPostProcessBucketSyncThenModeTransition(t *testing.T) {
 	}
 }
 
+func TestWeek1CompleteBucketTransitionsToResultsContinuation(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase:  phaseAssessmentInProgress,
+		ActiveMode:         modeConceptual,
+		CurrentWeekNumber:  1,
+		SelectedKeyConcept: "Week 1 - Problem Decomposition",
+	}
+	assistant := "Understood.\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"complete\", \"conceptualAssessmentBucket\": \"Competent\"}\n```"
+
+	followUp := postProcessAssistantTurn(state, assistant, false, nil)
+	if followUp.Kind != "server_results" {
+		t.Fatalf("expected server_results, got %+v", followUp)
+	}
+	if followUp.ContinueTurn {
+		t.Fatal("server results should not schedule another model call")
+	}
+	if state.ConversationPhase != phaseAssessmentResults {
+		t.Fatalf("ConversationPhase = %q, want %q", state.ConversationPhase, phaseAssessmentResults)
+	}
+	if state.FinalRating != bucketCompetent {
+		t.Fatalf("FinalRating = %q, want %q", state.FinalRating, bucketCompetent)
+	}
+}
+
 func TestPostProcessResultsContinuationAfterBug(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase:          phaseAssessmentInProgress,
 		ActiveMode:                 modeBug,
 		CurrentWeekNumber:          8,
+		SelectedKeyConcept:         "Week 8 - while Loops & Menus",
 		ConceptualAssessmentBucket: bucketCompetent,
 		CodeAssessmentBucket:       bucketCompetent,
 	}
 	assistant := "Thanks.\n\n```_ipyintervu\n{\"bugAssessmentPhase\": \"complete\", \"bugAssessmentBucket\": \"Competent\"}\n```"
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind != "results" || !followUp.ContinueTurn {
-		t.Fatalf("expected results continuation, got %+v", followUp)
+	if followUp.Kind != "server_results" {
+		t.Fatalf("expected server_results, got %+v", followUp)
+	}
+	if followUp.ContinueTurn {
+		t.Fatal("server results should not schedule another model call")
 	}
 	if state.ConversationPhase != phaseAssessmentResults {
 		t.Fatalf("ConversationPhase = %q, want %q", state.ConversationPhase, phaseAssessmentResults)
+	}
+}
+
+func TestWrapUpProseWithInProgressDoesNotForceAssessmentSync(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase: phaseAssessmentInProgress,
+		ActiveMode:        modeConceptual,
+		CurrentWeekNumber: 1,
+	}
+	assistant := strings.Join([]string{
+		"I think that covers our decomposition well. Let me transition us toward the next part of the assessment.",
+		"",
+		"```_ipyintervu",
+		"{\"conceptualAssessmentPhase\": \"in_progress\"}",
+		"```",
+	}, "\n")
+
+	followUp := postProcessAssistantTurn(state, assistant, false, nil)
+	if followUp.Kind == "corrective_retry" {
+		t.Fatalf("wrap-up prose with in_progress sync should not force corrective retry, got %+v", followUp)
+	}
+	if state.ConversationPhase != phaseAssessmentInProgress {
+		t.Fatalf("ConversationPhase = %q, want %q", state.ConversationPhase, phaseAssessmentInProgress)
 	}
 }
 
@@ -389,15 +423,15 @@ func TestCodeModeIntroDoesNotForceAssessmentSync(t *testing.T) {
 	assistant := "Hi, I'm Taylor, a software developer at ChemCore Diagnostics. Morgan and I will run the code problem portion of today's interview.\n\nBefore you write any code, break this problem into smaller steps and explain your approach.\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"in_progress\"}\n```"
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind == "assessment_sync" {
-		t.Fatalf("code mode intro should not force assessment_sync, got %+v", followUp)
+	if followUp.Kind == "corrective_retry" {
+		t.Fatalf("code mode intro should not force corrective retry, got %+v", followUp)
 	}
 	if state.CodeAssessmentPhase != assessmentPhaseInProgress {
 		t.Fatalf("CodeAssessmentPhase = %q, want in_progress", state.CodeAssessmentPhase)
 	}
 }
 
-func TestCodeModePrematureBugTransitionForcesSync(t *testing.T) {
+func TestCodeModePrematureBugTransitionDoesNotForceSync(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase: phaseAssessmentInProgress,
 		ActiveMode:        modeCode,
@@ -406,7 +440,7 @@ func TestCodeModePrematureBugTransitionForcesSync(t *testing.T) {
 	assistant := "Thanks for that. Let's move on to the debugging portion now.\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"in_progress\"}\n```"
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind != "assessment_sync" || !followUp.ContinueTurn {
-		t.Fatalf("expected assessment_sync for premature bug transition, got %+v", followUp)
+	if followUp.Kind == "corrective_retry" {
+		t.Fatalf("premature transition prose with valid sync should not force corrective retry, got %+v", followUp)
 	}
 }

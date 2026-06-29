@@ -41,6 +41,7 @@ See **Dictionary prohibition** in IPyIntervu-protocols.md.
 2. For each construct, confirm it appears in weeks 1..`primaryWeekNumber`.
 3. If any construct is from a later week, **rewrite** using only allowed constructs.
 4. Do not rely on general Python knowledge outside this syllabus when generating tasks.
+5. **One interview question per reply** — present the scenario or task, ask **one** question, append ```_ipyintervu```, and stop. Do not stack questions or supply example answers in the same message (see **Single question per reply** in IPyIntervu-protocols.md).
 
 ## Week 8 examples
 

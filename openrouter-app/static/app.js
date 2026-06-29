@@ -637,15 +637,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseSSEChunk(chunk, onDelta) {
+function parseSSEChunk(chunk, onDelta, onReset) {
   const lines = chunk.split("\n");
+  let eventName = "";
 
   for (const line of lines) {
+    if (line.startsWith("event: ")) {
+      eventName = line.slice(7).trim();
+      continue;
+    }
     if (!line.startsWith("data: ")) {
       continue;
     }
 
     const data = line.slice(6).trim();
+    if (eventName === "ipyintervu_reset") {
+      onReset?.();
+      eventName = "";
+      continue;
+    }
     if (!data || data === "[DONE]") {
       continue;
     }
@@ -704,6 +714,19 @@ async function executeChatStream({
     const last = conversation[conversation.length - 1];
     if (last?.role === "assistant") {
       last.content = stripClientVisibleAssistantContent(streamBuffer);
+      if (!deferRender) {
+        renderMessages();
+      }
+    }
+  }
+
+  function onStreamReset() {
+    if (replaceContent) {
+      streamBuffer = "";
+    }
+    const last = conversation[conversation.length - 1];
+    if (last?.role === "assistant") {
+      last.content = "";
       if (!deferRender) {
         renderMessages();
       }
@@ -808,12 +831,12 @@ async function executeChatStream({
       buffer = parts.pop() || "";
 
       for (const part of parts) {
-        parseSSEChunk(part, onStreamDelta);
+        parseSSEChunk(part, onStreamDelta, onStreamReset);
       }
     }
 
     if (buffer) {
-      parseSSEChunk(buffer, onStreamDelta);
+      parseSSEChunk(buffer, onStreamDelta, onStreamReset);
     }
 
     if (replaceContent) {

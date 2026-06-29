@@ -16,8 +16,12 @@ Server state controls phase transitions. This module defines **allowed user-faci
 ## AssessmentInProgress
 
 - Handled by active mode modules. Server sets `activeMode`; transitions are automatic when the active mode's `assessmentPhase` is `"complete"` and a valid bucket is present in `_ipyintervu`.
-- **Every assessment-mode reply must end with ```_ipyintervu```** — last lines of the reply, active mode only. Required on introductions, acknowledgments, and every question; omission causes a server retry.
-- While asking questions: `"<mode>AssessmentPhase": "in_progress"` (omit bucket). When finishing a mode: `"complete"` plus bucket.
+- **Finishing a mode:** When you will not ask another interview question in the active mode, that reply must end with ```_ipyintervu``` containing `"complete"` plus bucket — never `"in_progress"`. Wrap-up or transition phrases without `complete` plus bucket leave the session stuck.
+- **Single question per reply:** each assessment turn while interviewing contains **at most one** interview question (optional brief neutral lead-in only). Never stack multiple questions, repeat the same question in different words, or combine several acknowledgments with several questions. See **Single question per reply** in protocols.
+- **Every assessment-mode reply must end with ```_ipyintervu``` JSON** — absolute last lines of the reply, active mode only. Required on introductions, acknowledgments (`Got it.`, `Thanks.`), every question, and mode-closing replies; **a reply without the fence is incomplete** even when the interview text looks done. Omission causes a server retry and may fail closed after one retry. Do not stop generating until the closing ``` fence is written. While interviewing: `{"<mode>AssessmentPhase": "in_progress"}` only. When finishing: `"complete"` plus bucket in the same fence.
+- While asking questions: `"<mode>AssessmentPhase": "in_progress"` (omit bucket). When finishing a mode: `"complete"` plus bucket in the **same reply**.
+- **Code Problem mode (Weeks 2–10):** assess **both** task decomposition **and** pasted Python code before `"codeAssessmentPhase": "complete"`. After decomposition is answered, explicitly ask the student to paste their code; evaluate it per the week rubric; then explain-code / AI-use questions. Do not complete the code portion after decomposition only.
+- Week 1 Problem Decomposition: when decomposition is finished, send `"conceptualAssessmentPhase": "complete"` plus `conceptualAssessmentBucket` — the **server renders Assessment Results** for all weeks (no model-written results block). One scenario and one question per turn while interviewing; student decomposes — interviewer does not supply input/process/output in the question turn.
 
 ## AssessmentResults
 

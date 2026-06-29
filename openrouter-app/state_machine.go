@@ -39,22 +39,6 @@ var (
 		regexp.MustCompile(`(?i)(?:your|the)\s+bug\s+(?:assessment\s+)?(?:is\s+)?(?:rated\s+)?(` + proseRatingLabels + `|N/A|na)`),
 		regexp.MustCompile(`(?i)bug[^.\n]{0,80}\b(` + proseRatingLabels + `|N/A|na)\b`),
 	}
-	modeWrapUpPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\b(let'?s|we'?ll|we will)\b[^\n.]{0,50}\b(move|proceed|continue|turn|shift)\b[^\n.]{0,50}\b(to|into|on to)\b[^\n.]{0,30}\b(code|coding|bug|debugging|results|assessment results)\b`),
-		regexp.MustCompile(`(?i)\bready for (the )?(coding|code|bug|debugging)\b`),
-		regexp.MustCompile(`(?i)\b(that (concludes|completes|covers|wraps up)|we('ve| have) covered)\b[^\n.]{0,60}\b(conceptual|code|coding|bug|debugging)\b`),
-		regexp.MustCompile(`(?i)\bwrap(ping)? up\b[^\n.]{0,40}\b(conceptual|code|coding|bug|debugging)\b`),
-		regexp.MustCompile(`(?i)\bno (more|further) (conceptual |code )?(interview )?questions\b`),
-	}
-	prematureCodeToBugPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\b(to|into|on to)\b[^\n.]{0,30}\b(bug|debugging)\b`),
-		regexp.MustCompile(`(?i)\bready for (the )?(bug|debugging)\b`),
-		regexp.MustCompile(`(?i)\b(that (concludes|completes|covers|wraps up)|we('ve| have) covered)\b[^\n.]{0,60}\b(code|coding)\b`),
-		regexp.MustCompile(`(?i)\bwrap(ping)? up\b[^\n.]{0,40}\b(code|coding)\b`),
-	}
-	prematureBugToResultsPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\b(to|into|on to)\b[^\n.]{0,30}\b(results|assessment results)\b`),
-	}
 )
 
 type ipyintervuTail struct {
@@ -112,6 +96,7 @@ func applyPreChatUserUpdate(state *AgentSessionState, userMessage string) {
 			state.WaitingForUserResponse = true
 			state.CoachingRequested = false
 			state.CoachingEnteredBeforeResults = false
+			resetModeInterviewProgress(state)
 			markAssessmentStarted(state)
 		}
 	case phaseAssessmentInProgress:
@@ -127,6 +112,9 @@ func applyPreChatUserUpdate(state *AgentSessionState, userMessage string) {
 				}
 			}
 			clampAssessmentModeForward(state)
+			if state.ActiveMode == modeConceptual || state.ActiveMode == modeCode || state.ActiveMode == modeBug {
+				advanceInterviewProgressOnUserAnswer(state)
+			}
 		}
 	case phaseAssessmentResults:
 		if isCoachingRequest(userMessage) {
@@ -636,6 +624,7 @@ func applyAutomaticModeTransitions(state *AgentSessionState) bool {
 			state.CodeAssessmentPhase = ""
 			state.PendingQuestion = "codeAssessment"
 			state.WaitingForUserResponse = true
+			resetModeInterviewProgress(state)
 			return true
 		}
 	case modeCode:
@@ -645,6 +634,7 @@ func applyAutomaticModeTransitions(state *AgentSessionState) bool {
 			state.BugAssessmentPhase = ""
 			state.PendingQuestion = "bugAssessment"
 			state.WaitingForUserResponse = true
+			resetModeInterviewProgress(state)
 			return true
 		}
 	case modeBug:
@@ -665,9 +655,9 @@ func applyAutomaticModeTransitions(state *AgentSessionState) bool {
 func modeContinuationUserMessage(state *AgentSessionState) string {
 	switch state.ActiveMode {
 	case modeCode:
-		return "[System handoff: Server state activeMode is now CodeProblem. Begin the code assessment immediately: Taylor and Morgan introduce themselves at the company from businessDomain, then present the first step of the coding interview (decomposition before code). End your reply with ```_ipyintervu``` including \"codeAssessmentPhase\": \"in_progress\". Do not ask the student to choose or confirm the next mode.]"
+		return "[System handoff: Server state activeMode is now CodeProblem. Begin the code assessment immediately: Taylor and Morgan introduce themselves at the company from businessDomain, present one task scenario, and ask exactly ONE decomposition question (one ask only — e.g. how to break the problem down OR what the input is, not both and not input/process/output as separate questions). End your reply with ```_ipyintervu``` including \"codeAssessmentPhase\": \"in_progress\". Do not ask the student to choose or confirm the next mode.]"
 	case modeBug:
-		return "[System handoff: Server state activeMode is now BugHunting. Begin the bug-hunting assessment immediately: Riley and Casey introduce themselves, present one buggy snippet with intended behavior, and ask how the student would find the bug (debugging process only—no request for corrected code). End your reply with ```_ipyintervu``` including \"bugAssessmentPhase\": \"in_progress\". Do not ask the student to choose or confirm the next mode.]"
+		return "[System handoff: Server state activeMode is now BugHunting. Begin the bug-hunting assessment immediately: Riley and Casey introduce themselves at businessDomain.companyName, present one buggy snippet with intended behavior, and ask exactly ONE debugging-process question (how the student would find the bug — no corrected code). End your reply with ```_ipyintervu``` including \"bugAssessmentPhase\": \"in_progress\" as the last lines — required on this first bug turn. Do not ask the student to choose or confirm the next mode.]"
 	default:
 		return ""
 	}
@@ -676,9 +666,10 @@ func modeContinuationUserMessage(state *AgentSessionState) string {
 const maxChatInternalTurns = 6
 
 type assistantTurnFollowUp struct {
-	ContinueTurn bool
-	Handoff      string
-	Kind         string // mode, results, assessment_sync
+	ContinueTurn     bool
+	Handoff          string
+	Kind             string // mode, results, corrective_retry, server_results, fail_closed
+	DirectAssistant  string
 }
 
 func currentModeBucketValue(state *AgentSessionState) string {
@@ -742,36 +733,6 @@ func ipyBlockMissingCurrentBucket(state *AgentSessionState, assistant string) bo
 	return false
 }
 
-func looksLikeModeWrapUp(assistant string) bool {
-	for _, pattern := range modeWrapUpPatterns {
-		if pattern.MatchString(assistant) {
-			return true
-		}
-	}
-	return false
-}
-
-func looksLikePrematureModeTransition(state *AgentSessionState, assistant string) bool {
-	switch state.ActiveMode {
-	case modeCode:
-		for _, pattern := range prematureCodeToBugPatterns {
-			if pattern.MatchString(assistant) {
-				return true
-			}
-		}
-		return false
-	case modeBug:
-		for _, pattern := range prematureBugToResultsPatterns {
-			if pattern.MatchString(assistant) {
-				return true
-			}
-		}
-		return false
-	default:
-		return looksLikeModeWrapUp(assistant)
-	}
-}
-
 func shouldForceAssessmentSync(state *AgentSessionState, assistant string) bool {
 	if state.CoachingRequested && state.ActiveMode == modeCoaching {
 		return false
@@ -779,46 +740,16 @@ func shouldForceAssessmentSync(state *AgentSessionState, assistant string) bool 
 	if ipyBlockMissingCurrentBucket(state, assistant) {
 		return true
 	}
-	if currentModePhaseValue(state) == assessmentPhaseComplete && currentModeBucketValue(state) == "" {
-		return true
-	}
-	return looksLikePrematureModeTransition(state, assistant)
-}
-
-func assessmentSyncRetryMessage(state *AgentSessionState, assistant string) string {
-	if state.CoachingRequested && state.ActiveMode == modeCoaching {
-		return ""
-	}
-	if state.ConversationPhase != phaseAssessmentInProgress || state.ActiveMode == "" || isActiveModeComplete(state) {
-		return ""
-	}
-
-	phaseField, bucketField, label := currentModeSyncFields(state)
-	if phaseField == "" {
-		return ""
-	}
-
-	if !hasIPyIntervuBlock(assistant) {
-		return "[System: Missing _ipyintervu sync block. Every " + label + " reply must end with ```_ipyintervu``` JSON for the active mode. While asking interview questions: {\"" + phaseField + "\": \"in_progress\"}. When finished with this mode (no more questions in this mode): {\"" + phaseField + "\": \"complete\", \"" + bucketField + "\": \"Not Ready Yet\"|\"Competent\"|\"Exceptional\"}. Use exact bucket strings. The server advances modes automatically; do not ask the user to choose the next mode.]"
-	}
-
-	if !shouldForceAssessmentSync(state, assistant) {
-		return ""
-	}
-
-	return "[System: The " + label + " portion appears finished but the server did not receive assessmentPhase \"complete\" with " + bucketField + ". Reply with at most one brief neutral closing sentence (no new interview questions) and ```_ipyintervu``` JSON: {\"" + phaseField + "\": \"complete\", \"" + bucketField + "\": \"Not Ready Yet\"|\"Competent\"|\"Exceptional\"}. Use exact bucket strings—not Strong, Good, or other synonyms.]"
-}
-
-func assessmentResultsContinuationMessage(state *AgentSessionState) string {
-	if state.ConversationPhase != phaseAssessmentResults || state.FinalRating == "" {
-		return ""
-	}
-	return "[System handoff: Server state conversationPhase is now AssessmentResults. Present Assessment Results immediately using the exact conceptualAssessmentBucket, codeAssessmentBucket, bugAssessmentBucket, and finalRating strings from server state. Do not ask new interview questions or offer coaching unless the user explicitly requests it.]"
+	return currentModePhaseValue(state) == assessmentPhaseComplete && currentModeBucketValue(state) == ""
 }
 
 // postProcessAssistantTurn parses bucket sync, applies mode transitions, and decides
-// whether the server should immediately call the model again (mode handoff, results, or bucket retry).
-func postProcessAssistantTurn(state *AgentSessionState, assistant string, bucketSyncAttempted bool, syncLog *ipySyncLogContext) assistantTurnFollowUp {
+// whether the server should immediately call the model again (mode handoff or corrective retry).
+func postProcessAssistantTurn(state *AgentSessionState, assistant string, correctiveRetryAttempted bool, syncLog *ipySyncLogContext) assistantTurnFollowUp {
+	return postProcessAssistantTurnWithGuard(state, assistant, correctiveRetryAttempted, syncLog)
+}
+
+func postProcessAssistantTurnWithGuard(state *AgentSessionState, assistant string, correctiveRetryAttempted bool, syncLog *ipySyncLogContext) assistantTurnFollowUp {
 	phaseBefore := state.ConversationPhase
 
 	if syncLog != nil {
@@ -838,17 +769,33 @@ func postProcessAssistantTurn(state *AgentSessionState, assistant string, bucket
 	}
 
 	if state.ConversationPhase == phaseAssessmentResults && phaseBefore != phaseAssessmentResults {
-		if handoff := assessmentResultsContinuationMessage(state); handoff != "" {
-			return assistantTurnFollowUp{ContinueTurn: true, Handoff: handoff, Kind: "results"}
+		if state.FinalRating != "" {
+			return assistantTurnFollowUp{
+				Kind:            "server_results",
+				DirectAssistant: buildServerAssessmentResultsMessage(state),
+			}
 		}
 	}
 
-	if !bucketSyncAttempted && state.ConversationPhase == phaseAssessmentInProgress {
-		if handoff := assessmentSyncRetryMessage(state, assistant); handoff != "" {
-			return assistantTurnFollowUp{ContinueTurn: true, Handoff: handoff, Kind: "assessment_sync"}
+	violations := detectAssessmentViolations(state, assistant)
+	if syncLog != nil && violations.Any() {
+		logAssessmentViolations(syncLog.sessionID, syncLog.turnID, syncLog.modeTurn, violations)
+	}
+
+	if correctiveRetryAttempted && violations.StillInvalidAfterRetry() {
+		return assistantTurnFollowUp{
+			Kind:            "fail_closed",
+			DirectAssistant: buildAssessmentTurnFailureMessage(),
 		}
 	}
 
+	if !correctiveRetryAttempted && violations.NeedsCorrectiveRetry() {
+		if handoff := buildUnifiedCorrectiveHandoff(state, violations); handoff != "" {
+			return assistantTurnFollowUp{ContinueTurn: true, Handoff: handoff, Kind: "corrective_retry"}
+		}
+	}
+
+	updateInterviewProgressAfterAssistant(state, assistant)
 	return assistantTurnFollowUp{}
 }
 

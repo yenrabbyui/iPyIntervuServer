@@ -173,7 +173,7 @@ func (p *chatRunParams) finalizeTurn(rawAssistant string, failed bool) {
 	if !p.managesTurn() {
 		return
 	}
-	visible := clientVisibleAssistantContent(rawAssistant)
+	visible := clientVisibleAssistantContentGuarded(rawAssistant, p.state)
 	if failed {
 		p.turns.failTurn(p.sessionID, p.turnID, rawAssistant, visible)
 		log.Printf("[openrouter] turn_failed session=%s turn_id=%s visible_chars=%d",
@@ -185,24 +185,100 @@ func (p *chatRunParams) finalizeTurn(rawAssistant string, failed bool) {
 		truncateSessionID(p.sessionID), truncateTurnID(p.turnID), len(visible))
 }
 
+func (p *chatRunParams) finalizeGuardedStreamTurn(raw string, streamHeadersSent bool, streamRelay relaySSEResult, handoffLegs int) {
+	visible := clientVisibleAssistantContentGuarded(raw, p.state)
+	unguarded := clientVisibleAssistantContent(raw)
+	needsFullReplay := streamRelay.bufferedPreResultsStream || handoffLegs > 0 ||
+		(streamRelay.sentToClient && visible != unguarded)
+	if streamHeadersSent && needsFullReplay {
+		writeSSEReset(p.w)
+		_ = writeSSEReplayFromVisible(p.w, visible)
+		if handoffLegs > 0 || streamRelay.bufferedPreResultsStream {
+			log.Printf("[openrouter] combined_stream_replay session=%s turn_id=%s handoff_legs=%d visible_chars=%d",
+				truncateSessionID(p.sessionID), truncateTurnID(p.turnID), handoffLegs, len(visible))
+		} else {
+			log.Printf("[openrouter] guard_stream_replay session=%s turn_id=%s unguarded_chars=%d visible_chars=%d",
+				truncateSessionID(p.sessionID), truncateTurnID(p.turnID), len(unguarded), len(visible))
+		}
+	}
+	p.finalizeTurn(raw, false)
+}
+
+func (p *chatRunParams) handoffVisible(handoffParts []string) string {
+	return clientVisibleAssistantContentGuarded(p.displayRawAssistant(handoffParts, ""), p.state)
+}
+
+func (p *chatRunParams) replayStreamVisible(visible string, streamHeadersSent bool, final bool) {
+	if !streamHeadersSent || visible == "" {
+		return
+	}
+	writeSSEReset(p.w)
+	if final {
+		_ = writeSSEReplayFromVisible(p.w, visible)
+		return
+	}
+	_ = writeSSEReplayDeltas(p.w, visible)
+}
+
+func (p *chatRunParams) displayRawAssistant(handoffParts []string, lastAssistant string) string {
+	return buildDisplayAssistantRaw(handoffParts, lastAssistant)
+}
+
+func (p *chatRunParams) resetCorrectiveStream(streamHeadersSent bool) {
+	if shared := p.sharedStream(); shared != nil {
+		shared.resetForCorrectiveRetry()
+	}
+	if streamHeadersSent {
+		writeSSEReset(p.w)
+	}
+}
+
+func (p *chatRunParams) deliverDirectAssistant(content string, streamHeadersSent bool, resetBeforeWrite bool, failed bool) {
+	if streamHeadersSent {
+		if resetBeforeWrite {
+			p.resetCorrectiveStream(streamHeadersSent)
+		}
+		_ = writeSSEReplayFromVisible(p.w, content)
+	}
+	if p.managesTurn() {
+		p.finalizeTurn(content, failed)
+	}
+}
+
+func (p *chatRunParams) restoreHandoffAfterCorrectiveReset(handoffParts []string, streamHeadersSent bool) {
+	if shared := p.sharedStream(); shared != nil {
+		shared.resetForCorrectiveRetry()
+	}
+	if !streamHeadersSent {
+		return
+	}
+	writeSSEReset(p.w)
+	if len(handoffParts) > 0 {
+		_ = writeSSEReplayDeltas(p.w, p.handoffVisible(handoffParts))
+	}
+}
+
 func (p *chatRunParams) tryScheduleFollowUpTurn(
 	followUp assistantTurnFollowUp,
 	assistant string,
 	turnMessages *[]chatMessage,
 	turnUserMessage *string,
 	modeContinuations *int,
-	bucketSyncAttempted *bool,
+	correctiveRetryAttempted *bool,
 	streaming bool,
 ) bool {
+	if followUp.Kind == "server_results" || followUp.Kind == "fail_closed" {
+		return false
+	}
 	if !followUp.ContinueTurn || followUp.Handoff == "" {
 		return false
 	}
 	if followUp.Kind == "mode" || followUp.Kind == "results" {
 		*modeContinuations++
 	}
-	if followUp.Kind == "assessment_sync" {
-		*bucketSyncAttempted = true
-		log.Printf("[openrouter] assessment_sync_retry session=%s turn_id=%s active_mode=%s",
+	if followUp.Kind == "corrective_retry" {
+		*correctiveRetryAttempted = true
+		log.Printf("[openrouter] corrective_retry session=%s turn_id=%s active_mode=%s",
 			truncateSessionID(p.sessionID), truncateTurnID(p.turnID), p.state.ActiveMode)
 	}
 	if streaming {
@@ -219,22 +295,38 @@ func (p *chatRunParams) tryScheduleFollowUpTurn(
 func runChatRequest(p chatRunParams) {
 	chatStarted := time.Now()
 	modeContinuations := 0
-	bucketSyncAttempted := false
+	correctiveRetryAttempted := false
 
 	turnMessages := append([]chatMessage(nil), p.req.Messages...)
 	turnUserMessage := p.userMessage
 	streaming := p.req.Stream
-	var combinedAssistant strings.Builder
+	var handoffParts []string
+	var lastAssistant string
 	streamStarted := false
 	if p.turnRole == turnRoleResumeLeader && p.sharedStream() != nil {
-		combinedAssistant.WriteString(p.sharedStream().rawAssistant)
+		lastAssistant = p.sharedStream().rawAssistant
+	}
+	displayRaw := func() string {
+		return p.displayRawAssistant(handoffParts, lastAssistant)
 	}
 
 	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("[openrouter] chat_panic session=%s turn_id=%s panic=%v",
+				truncateSessionID(p.sessionID), truncateTurnID(p.turnID), recovered)
+			if p.managesTurn() {
+				raw := displayRaw()
+				if raw == "" && p.sharedStream() != nil {
+					raw = p.sharedStream().rawAssistant
+				}
+				p.finalizeTurn(raw, true)
+			}
+			return
+		}
 		if !p.managesTurn() || streamStarted {
 			return
 		}
-		raw := combinedAssistant.String()
+		raw := displayRaw()
 		if raw == "" && p.sharedStream() != nil {
 			raw = p.sharedStream().rawAssistant
 		}
@@ -265,12 +357,14 @@ func runChatRequest(p chatRunParams) {
 			var assistant string
 			logCtx := newOpenRouterLogCtx(p.sessionID, p.turnID, "chat_stream", turn)
 
+			var streamRelay relaySSEResult
+
 		streamAttempt:
 			for attempt := 0; attempt < openRouterMaxAttempts; attempt++ {
 				if err := waitOpenRouterRetry(p.upstreamContext(), attempt, logCtx); err != nil {
 					logOpenRouterFailure(logCtx, attempt, "context", err, streamHeadersSent, "stream_wait_retry")
 					if p.managesTurn() {
-						p.finalizeTurn(combinedAssistant.String(), true)
+						p.finalizeTurn(displayRaw(), true)
 					}
 					return
 				}
@@ -289,7 +383,7 @@ func runChatRequest(p chatRunParams) {
 						http.Error(p.w, "upstream error", http.StatusBadGateway)
 					}
 					if p.managesTurn() {
-						p.finalizeTurn(combinedAssistant.String(), true)
+						p.finalizeTurn(displayRaw(), true)
 					}
 					return
 				}
@@ -309,7 +403,7 @@ func runChatRequest(p chatRunParams) {
 						}
 						http.Error(p.w, "upstream error", http.StatusBadGateway)
 						if p.managesTurn() {
-							p.finalizeTurn(combinedAssistant.String(), true)
+							p.finalizeTurn(displayRaw(), true)
 						}
 						return
 					}
@@ -341,14 +435,15 @@ func runChatRequest(p chatRunParams) {
 						_, _ = p.w.Write(body)
 					}
 					if p.managesTurn() {
-						p.finalizeTurn(combinedAssistant.String(), true)
+						p.finalizeTurn(displayRaw(), true)
 					}
 					return
 				}
 
 				relayStarted := time.Now()
-				result := relaySSEFilteredWithBuffer(p.w, resp.Body, p.sharedStream())
+				result := relaySSEFilteredWithBuffer(p.w, resp.Body, p.sharedStream(), p.state)
 				resp.Body.Close()
+				streamRelay = result
 				logOpenRouterStreamDone(logCtx, attempt, result, time.Since(relayStarted).Milliseconds())
 
 				if result.err != nil {
@@ -361,7 +456,7 @@ func runChatRequest(p chatRunParams) {
 						break streamAttempt
 					}
 					if p.managesTurn() {
-						p.finalizeTurn(combinedAssistant.String(), true)
+						p.finalizeTurn(displayRaw(), true)
 					}
 					return
 				}
@@ -374,16 +469,13 @@ func runChatRequest(p chatRunParams) {
 					truncateSessionID(p.sessionID), truncateTurnID(p.turnID), turn, openRouterMaxAttempts)
 				http.Error(p.w, "upstream error", http.StatusBadGateway)
 				if p.managesTurn() {
-					p.finalizeTurn(combinedAssistant.String(), true)
+					p.finalizeTurn(displayRaw(), true)
 				}
 				return
 			}
 
 		streamComplete:
-			if combinedAssistant.Len() > 0 {
-				combinedAssistant.WriteString("\n\n")
-			}
-			combinedAssistant.WriteString(assistant)
+			lastAssistant = assistant
 
 			syncLog := &ipySyncLogContext{
 				sessionID:  p.sessionID,
@@ -392,13 +484,34 @@ func runChatRequest(p chatRunParams) {
 				activeMode: p.state.ActiveMode,
 				phase:      p.state.ConversationPhase,
 			}
-			followUp := postProcessAssistantTurn(p.state, assistant, bucketSyncAttempted, syncLog)
+			followUp := postProcessAssistantTurnWithGuard(p.state, assistant, correctiveRetryAttempted, syncLog)
 			p.states.set(p.sessionID, p.state)
-			if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &bucketSyncAttempted, streaming) {
+			if followUp.Kind == "server_results" || followUp.Kind == "fail_closed" {
+				content := followUp.DirectAssistant
+				if content == "" {
+					content = buildAssessmentTurnFailureMessage()
+				}
+				resetBeforeWrite := streamRelay.sentToClient || len(handoffParts) > 0
+				p.deliverDirectAssistant(content, streamHeadersSent, resetBeforeWrite, followUp.Kind == "fail_closed")
+				logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
+				return
+			}
+			if followUp.ContinueTurn {
+				if followUp.Kind == "mode" || followUp.Kind == "results" {
+					handoffParts = append(handoffParts, assistant)
+					if followUp.Kind == "mode" {
+						p.replayStreamVisible(p.handoffVisible(handoffParts), streamHeadersSent, false)
+					}
+				}
+				if isCorrectiveFollowUpKind(followUp.Kind) {
+					p.restoreHandoffAfterCorrectiveReset(handoffParts, streamHeadersSent)
+				}
+			}
+			if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &correctiveRetryAttempted, streaming) {
 				continue
 			}
 			if p.managesTurn() {
-				p.finalizeTurn(combinedAssistant.String(), false)
+				p.finalizeGuardedStreamTurn(displayRaw(), streamHeadersSent, streamRelay, len(handoffParts))
 			}
 			logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
 			return
@@ -411,7 +524,7 @@ func runChatRequest(p chatRunParams) {
 				truncateSessionID(p.sessionID), truncateTurnID(p.turnID), turn, err.Error())
 			http.Error(p.w, "upstream error", http.StatusBadGateway)
 			if p.managesTurn() {
-				p.finalizeTurn(combinedAssistant.String(), true)
+				p.finalizeTurn(displayRaw(), true)
 			}
 			return
 		}
@@ -419,16 +532,13 @@ func runChatRequest(p chatRunParams) {
 		if statusCode != http.StatusOK {
 			http.Error(p.w, string(respBody), statusCode)
 			if p.managesTurn() {
-				p.finalizeTurn(combinedAssistant.String(), true)
+				p.finalizeTurn(displayRaw(), true)
 			}
 			return
 		}
 
 		assistant := extractAssistantContent(respBody)
-		if combinedAssistant.Len() > 0 {
-			combinedAssistant.WriteString("\n\n")
-		}
-		combinedAssistant.WriteString(assistant)
+		lastAssistant = assistant
 
 		syncLog := &ipySyncLogContext{
 			sessionID:  p.sessionID,
@@ -437,29 +547,60 @@ func runChatRequest(p chatRunParams) {
 			activeMode: p.state.ActiveMode,
 			phase:      p.state.ConversationPhase,
 		}
-		followUp := postProcessAssistantTurn(p.state, assistant, bucketSyncAttempted, syncLog)
+		followUp := postProcessAssistantTurnWithGuard(p.state, assistant, correctiveRetryAttempted, syncLog)
 		p.states.set(p.sessionID, p.state)
+		if followUp.Kind == "server_results" || followUp.Kind == "fail_closed" {
+			content := followUp.DirectAssistant
+			if content == "" {
+				content = buildAssessmentTurnFailureMessage()
+			}
+			if visible := clientVisibleAssistantContentGuarded(content, p.state); visible != "" {
+				content = visible
+			}
+			strippedBody, err := replaceAssistantContent(respBody, content)
+			if err != nil {
+				strippedBody = respBody
+			}
+			p.w.Header().Set("Content-Type", "application/json")
+			p.w.WriteHeader(statusCode)
+			_, _ = p.w.Write(strippedBody)
+			if p.managesTurn() {
+				p.finalizeTurn(content, followUp.Kind == "fail_closed")
+			}
+			logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
+			return
+		}
+		if followUp.ContinueTurn {
+			if followUp.Kind == "mode" || followUp.Kind == "results" {
+				handoffParts = append(handoffParts, assistant)
+			}
+		}
 
-		if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &bucketSyncAttempted, streaming) {
+		if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &correctiveRetryAttempted, streaming) {
 			continue
 		}
 
-		strippedBody, err := replaceAssistantContent(respBody, stripIPyIntervuTail(combinedAssistant.String()))
+		strippedBody, err := replaceAssistantContent(respBody, stripIPyIntervuTail(displayRaw()))
 		if err != nil {
 			strippedBody = respBody
+		}
+		if visible := clientVisibleAssistantContentGuarded(displayRaw(), p.state); visible != "" {
+			if rewritten, err := replaceAssistantContent(strippedBody, visible); err == nil {
+				strippedBody = rewritten
+			}
 		}
 		p.w.Header().Set("Content-Type", "application/json")
 		p.w.WriteHeader(statusCode)
 		_, _ = p.w.Write(strippedBody)
 		if p.managesTurn() {
-			p.finalizeTurn(combinedAssistant.String(), false)
+			p.finalizeTurn(displayRaw(), false)
 		}
 		logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
 		return
 	}
 
 	if p.managesTurn() {
-		p.finalizeTurn(combinedAssistant.String(), false)
+		p.finalizeTurn(displayRaw(), false)
 	}
 	logChatRequestDone(p.sessionID, p.turnID, time.Since(chatStarted).Milliseconds(), modeContinuations)
 }

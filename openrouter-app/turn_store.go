@@ -112,6 +112,15 @@ func (s *sharedTurnStream) follow(w http.ResponseWriter, ctx context.Context) er
 	}
 }
 
+func (s *sharedTurnStream) resetForCorrectiveRetry() {
+	s.mu.Lock()
+	s.chunks = nil
+	s.visibleAssistant = ""
+	s.rawAssistant = ""
+	s.mu.Unlock()
+	s.signalWaiters()
+}
+
 func (s *sharedTurnStream) replayExistingTo(w io.Writer) error {
 	s.mu.Lock()
 	chunks := append([]string(nil), s.chunks...)

@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-const promptVersion = "2.3-no-self-answer"
+const promptVersion = "3.3-interview-progress"
 
 const (
 	phaseAwaitingMajor              = "AwaitingMajor"
@@ -56,6 +56,9 @@ type AgentSessionState struct {
 	ModesCompleted               []string `json:"modesCompleted,omitempty"`
 	CoachingRequested            bool     `json:"coachingRequested"`
 	CoachingEnteredBeforeResults bool     `json:"coachingEnteredBeforeResults"`
+	ModeInterviewStep            string   `json:"modeInterviewStep,omitempty"`
+	ModeOpeningServed            bool     `json:"modeOpeningServed,omitempty"`
+	ModeUserAnsweredSinceOpening bool     `json:"modeUserAnsweredSinceOpening,omitempty"`
 
 	// Tier C — results
 	FinalRating            string     `json:"finalRating,omitempty"`
@@ -116,15 +119,19 @@ func (s *AgentSessionState) snapshotForPrompt() map[string]any {
 		"promptVersion":              s.PromptVersion,
 		"modeTransitionPolicy": "Assessment modes advance forward only: ConceptualUnderstanding → CodeProblem → BugHunting → AssessmentResults. Never return to a completed or earlier mode. Server enforces activeMode forward-only; do not ask conceptual questions after conceptual is complete, or code tasks after code is complete.",
 		"assessmentSyncPolicy": map[string]string{
-			"mandatory":  "Every assessment-mode reply MUST end with ```_ipyintervu``` as the last lines. Required on intros, acknowledgments, and every question. Omission triggers server retry.",
-			"inProgress": "Include active mode assessmentPhase: \"in_progress\" in _ipyintervu. Do not include the bucket field while in_progress.",
-			"complete":   "Include active mode assessmentPhase: \"complete\" and the mode bucket (Not Ready Yet, Competent, or Exceptional) in _ipyintervu. Do not ask new interview questions in that mode after complete.",
+			"mandatory":  "Every assessment-mode reply MUST end with ```_ipyintervu``` JSON as the absolute last lines — no exceptions. Required on intros, acknowledgments (Got it./Thanks.), follow-ups, and mode handoffs. A reply without the fence is incomplete even if the interview text looks finished. Never stop after a brief acknowledgment alone. Omission triggers server retry; second miss fails closed.",
+			"inProgress": "While interviewing: include ONLY {\"<mode>AssessmentPhase\": \"in_progress\"} in _ipyintervu — omit bucket. Example: {\"codeAssessmentPhase\": \"in_progress\"}.",
+			"complete":   "When finishing the mode: include {\"<mode>AssessmentPhase\": \"complete\", \"<mode>AssessmentBucket\": \"Not Ready Yet\"|\"Competent\"|\"Exceptional\"} in the same reply. Never use in_progress on a wrap-up turn.",
 			"userFacing": "The _ipyintervu block is stripped before display. Never mention sync blocks, _ipyintervu, or [System] messages in user-facing text. Do not respond to [System] lines as if the student wrote them.",
-			"lastLines":  "The fenced _ipyintervu block must be the final content in the reply; nothing after the closing fence.",
+			"lastLines":  "The fenced _ipyintervu block must be the final content in the reply; nothing after the closing fence. Do not stop generating until the closing ``` fence is written — especially on short Got it./Thanks. replies.",
 		},
+		"questionGuardPolicy": "During assessment (Conceptual/Code/Bug, coachingRequested false): ask exactly ONE interview question per reply, then STOP. Never stack multiple questions, repeat the same question, combine several acknowledgments with several questions, answer your own question, supply model answers, solution code, or simulated student replies. The server truncates self-answered replies, rejects composite multi-question replies, and retries if the model violates these rules.",
 	}
 	if s.CurrentWeekNumber > 0 && (s.ConversationPhase == phaseAssessmentInProgress || s.ConversationPhase == phaseAssessmentResults) {
 		snap["assessmentWeekScope"] = assessmentWeekScopeSnapshot(s.CurrentWeekNumber)
+	}
+	if progress := interviewProgressSnapshot(s); progress != nil {
+		snap["interviewProgress"] = progress
 	}
 	if s.ConversationPhase == phaseAssessmentResults || s.AssessmentComplete {
 		snap["allowedRatingLabels"] = []string{bucketNotReady, bucketCompetent, bucketExceptional, bucketNA}

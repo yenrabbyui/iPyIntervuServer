@@ -12,6 +12,7 @@ import (
 var ipyintervuFenceStripPattern = regexp.MustCompile("(?is)```(?:json)?\\s*_ipy(?:intervu)?\\s*\\n.*?\\n```")
 
 func stripTrailingPartialIPyFence(content string) string {
+	content = stripStraySyncFenceTail(content)
 	if strings.Count(content, "```") == 0 {
 		return content
 	}
@@ -29,6 +30,22 @@ func stripTrailingPartialIPyFence(content string) string {
 	return content
 }
 
+func stripStraySyncFenceTail(content string) string {
+	content = strings.TrimRight(content, " \t\n\r")
+	for {
+		i := len(content) - 1
+		for i >= 0 && content[i] == '`' {
+			i--
+		}
+		trailing := content[i+1:]
+		if trailing == "" || len(trailing) >= 3 {
+			break
+		}
+		content = strings.TrimRight(content[:i+1], " \t\n\r")
+	}
+	return content
+}
+
 // stripIPyIntervuTail removes complete _ipyintervu sync blocks from assistant text.
 func stripIPyIntervuTail(content string) string {
 	s := ipyintervuFenceStripPattern.ReplaceAllString(content, "")
@@ -38,6 +55,18 @@ func stripIPyIntervuTail(content string) string {
 // clientVisibleAssistantContent is safe to stream/display (complete blocks removed, partial fence held back).
 func clientVisibleAssistantContent(accumulated string) string {
 	return stripTrailingPartialIPyFence(stripIPyIntervuTail(accumulated))
+}
+
+// streamingVisibleDelta returns newly visible text for SSE relay and updates sentVisible.
+// When question-guard truncation shortens visible text, sentVisible is clamped so slice
+// bounds cannot panic mid-stream (which would leave the turn stuck in_progress).
+func streamingVisibleDelta(visible string, sentVisible *int) string {
+	if *sentVisible > len(visible) {
+		*sentVisible = len(visible)
+	}
+	delta := visible[*sentVisible:]
+	*sentVisible = len(visible)
+	return delta
 }
 
 func replaceAssistantContent(body []byte, content string) ([]byte, error) {
@@ -96,23 +125,25 @@ func writeSSEKeepalive(w http.ResponseWriter) {
 }
 
 type relaySSEResult struct {
-	assistant    string
-	sentToClient bool
-	failurePoint string // upstream_read, client_write, none
-	err          error
+	assistant               string
+	sentToClient            bool
+	bufferedPreResultsStream bool
+	failurePoint            string // upstream_read, client_write, none
+	err                     error
 }
 
 func relaySSEFiltered(dst io.Writer, src io.Reader) relaySSEResult {
-	return relaySSEFilteredWithBuffer(dst, src, nil)
+	return relaySSEFilteredWithBuffer(dst, src, nil, nil)
 }
 
-func relaySSEFilteredWithBuffer(dst io.Writer, src io.Reader, shared *sharedTurnStream) relaySSEResult {
+func relaySSEFilteredWithBuffer(dst io.Writer, src io.Reader, shared *sharedTurnStream, state *AgentSessionState) relaySSEResult {
 	stopKeepalive := startSSERelayKeepalive(dst)
 	defer stopKeepalive()
 
 	var accumulated strings.Builder
 	var sentVisible int
 	var sentToClient bool
+	bufferPreResults := shouldBufferPreResultsStream(state)
 	clientGone := false
 	buf := make([]byte, 32*1024)
 	remainder := ""
@@ -122,18 +153,17 @@ func relaySSEFilteredWithBuffer(dst io.Writer, src io.Reader, shared *sharedTurn
 		outPart := part
 		if delta != "" {
 			accumulated.WriteString(delta)
-			visible := clientVisibleAssistantContent(accumulated.String())
-			newDelta := visible[sentVisible:]
-			sentVisible = len(visible)
+			visible := clientVisibleAssistantContentGuarded(accumulated.String(), state)
+			newDelta := streamingVisibleDelta(visible, &sentVisible)
 			if newDelta == "" {
 				return nil
 			}
 			outPart = rewriteSSEContentDelta(part, newDelta)
 		}
 		if shared != nil {
-			shared.appendChunk(outPart, accumulated.String(), clientVisibleAssistantContent(accumulated.String()))
+			shared.appendChunk(outPart, accumulated.String(), clientVisibleAssistantContentGuarded(accumulated.String(), state))
 		}
-		if clientGone {
+		if clientGone || bufferPreResults {
 			return nil
 		}
 		_, err := dst.Write([]byte(outPart + "\n\n"))
@@ -180,7 +210,12 @@ func relaySSEFilteredWithBuffer(dst io.Writer, src io.Reader, shared *sharedTurn
 				}
 			}
 			if err == io.EOF {
-				return relaySSEResult{assistant: accumulated.String(), sentToClient: sentToClient, failurePoint: "none"}
+				return relaySSEResult{
+					assistant:               accumulated.String(),
+					sentToClient:            sentToClient,
+					bufferedPreResultsStream: bufferPreResults,
+					failurePoint:            "none",
+				}
 			}
 			return relaySSEResult{
 				assistant:    accumulated.String(),

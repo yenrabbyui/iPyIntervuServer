@@ -63,3 +63,36 @@ func TestStripIPyIntervuTailShortFenceTag(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestStreamingVisibleDeltaClampsWhenVisibleShrinks(t *testing.T) {
+	sentVisible := 120
+	visible := "What are the inputs?"
+	delta := streamingVisibleDelta(visible, &sentVisible)
+	if delta != "" {
+		t.Fatalf("expected no new delta after shrink clamp, got %q", delta)
+	}
+	if sentVisible != len(visible) {
+		t.Fatalf("sentVisible = %d, want %d", sentVisible, len(visible))
+	}
+}
+
+func TestStreamingVisibleDeltaReturnsSuffix(t *testing.T) {
+	sentVisible := 5
+	visible := "Hello world"
+	delta := streamingVisibleDelta(visible, &sentVisible)
+	if delta != " world" {
+		t.Fatalf("got %q, want %q", delta, " world")
+	}
+	if sentVisible != len(visible) {
+		t.Fatalf("sentVisible = %d, want %d", sentVisible, len(visible))
+	}
+}
+
+func TestClientVisibleAssistantContentStripsStrayFenceBackticks(t *testing.T) {
+	raw := "What would you identify as the input?\n\n``"
+	got := clientVisibleAssistantContent(raw)
+	want := "What would you identify as the input?"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
