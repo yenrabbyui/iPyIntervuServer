@@ -72,6 +72,13 @@ function focusPrompt() {
   promptEl.focus({ preventScroll: true });
 }
 
+function focusPublicKeyInput() {
+  if (publicKeyInputEl.disabled || authFormEl.classList.contains("hidden")) {
+    return;
+  }
+  publicKeyInputEl.focus({ preventScroll: true });
+}
+
 function updateComposerEnabled() {
   const busy = isAuthenticated && isWaitingForResponse();
   const wasDisabled = promptEl.disabled;
@@ -283,6 +290,10 @@ function showAuthLoginForm(message = "") {
   }
   setChatEnabled(false);
   renderSessionChrome(null);
+  // The gate is the first thing a user meets, so put the caret in the key box
+  // straight away — on first load and whenever the form comes back after a
+  // failed or expired login.
+  focusPublicKeyInput();
 }
 
 function hideAuthGate() {

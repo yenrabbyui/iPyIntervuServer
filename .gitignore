@@ -1,1 +1,4 @@
 openrouter-app/openrouter-app
+
+# Private keys and certificates
+*.pem
