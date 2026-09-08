@@ -29,18 +29,14 @@
 
 **Rating:** Not Yet Ready
 
-```python
-if grade >= 90: print('A')
-if grade >= 80: print('B')
-if grade >= 70: print('C')
-if grade < 70: print('F')
-```
+You use for when you have a list and while when you don't. They're kind of the same.
 
 **Issues:**
 
-- uses separate ifs instead of elif—multiple letters print for same grade
-- does not use elif so one grade can match several branches
-- fundamental misunderstanding of mutually exclusive branches
+- vague and partially wrong
+- for is for iterating over a known sequence (or range); while is for repeating until a condition is false
+- does not give clear criteria (e.g. known number of items vs 'until user quits')
+- saying they're the same shows misunderstanding
 
 ## Competent
 
@@ -71,22 +67,13 @@ if grade < 70: print('F')
 
 **Rating:** Competent
 
-```python
-if grade >= 90:
-    print('A')
-elif grade >= 80:
-    print('B')
-elif grade >= 70:
-    print('C')
-else:
-    print('F')
-```
+Use a for loop when you know how many times to iterate—like going through each item in a list or a range of numbers. Use a while loop when you're repeating until a condition becomes false, like when the user types 'quit' or until a value meets some condition. So for loops are for fixed sequences, while loops are for 'keep going until something changes.'
 
 **Strengths:**
 
-- correct elif chain—mutually exclusive
-- correct thresholds (90+, 80-89, 70-79)
-- functional and correct
+- correct distinction (known iteration vs until condition)
+- gives concrete examples (list/range vs user quits)
+- accurate and practical
 
 ## Exceptional
 
@@ -116,23 +103,14 @@ else:
 
 **Rating:** Exceptional
 
-```python
-if grade >= 90:
-    print('A')
-elif grade >= 80:
-    print('B')
-elif grade >= 70:
-    print('C')
-else:
-    print('F')
-# Order matters: check highest first so each grade hits exactly one branch.
-```
+Use a for loop when you're iterating over a known sequence—a list, a range(n), or anything you can step through one item at a time with a fixed number of iterations. Use a while loop when the number of iterations isn't known in advance and depends on a condition (e.g. 'repeat until the user enters Q' or 'repeat until score reaches 100'). In problem decomposition: if you can say 'do this for each X,' use for; if you say 'keep doing this until Y happens,' use while. Be careful with while—you need a condition that eventually becomes false or you get an infinite loop.
 
 **Strengths:**
 
-- correct elif chain and thresholds
-- comment explains why order matters
-- clear structure
+- clear criteria (known sequence vs condition-based)
+- concrete examples (list, range vs user quits, score)
+- connects to problem decomposition
+- cautions about infinite loops
 
 ## Code Answer Integrated Dimensions
 

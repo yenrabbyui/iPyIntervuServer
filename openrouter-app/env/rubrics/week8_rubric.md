@@ -1,34 +1,21 @@
 # Week 8 Assessment Rubric
 
-## Assessment scope (Week 8 — while loops and menus)
-
-**In scope:** `while` loops with a condition in the header (e.g. `while choice != 'Q'`), menus, conditionals, repeat-until-quit logic.
-
-**Never prompt or require:** `while True`, `break`, or `continue`. Do not design tasks or lead conceptual questions to elicit those constructs.
-
-**If the student uses them:** When submitted code (or a voluntary explanation) includes `while True`, `break`, or `continue`, treat it as acceptable. Ask pointed interview follow-ups: why they chose that approach and what advantage it had for this problem. Do not penalize for using them; assess understanding of their choice.
-
-**Examples in this rubric** use condition-driven `while` loops only; do not introduce `while True` or `break` in model solutions.
-
-**Forbidden constructs when assessing Week 8:** lists, file I/O, or any task that requires storing multiple records in a collection or reading external data files. Prior weeks (variables, input, strings, conditionals, `for`, `while` menus) are allowed as support.
+**Scope:** lists only — indexing, methods, iteration, `len()`. Dictionaries are not assessed and must not appear in prompts or examples.
 
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant errors about conditionals or loops
-- confuses if/elif/else or when each applies
-- cannot articulate when to use for vs while
-- does not understand boolean expressions (and, or, not)
-- fundamental misunderstanding of control flow
+- significant errors about lists
+- confuses list indexing with function calls or other syntax
+- cannot articulate when a list is appropriate vs scalar variables
+- fundamental misunderstanding of list methods or iteration
 
 ### Code Answer
 
-- non-functional or major logic errors
-- wrong or missing if/elif/else branches
-- infinite loop or loop that never runs
-- wrong comparison operators (e.g. = instead of ==)
-- no clear menu or control structure
+- non-functional or major syntax/logic errors
+- wrong list usage (e.g. wrong indexing, `.append()` on a non-list, off-by-one in loops)
+- does not process or format list data correctly
 - completely misses the prompt
 
 ### AI Use Answer
@@ -42,46 +29,35 @@
 **Rating:** Not Yet Ready
 
 ```python
-choice = input('A or B or Q')
-if choice = 'A':
-  print('A')
-elif choice = 'B':
-  print('B')
-elif choice == 'Q':
-  print('Goodbye.')
-else:
-  print('Invalid choice.')
+first = items(0)
+last = items(-1)
 ```
 
 **Issues:**
 
-- uses = instead of == for comparison (syntax/assignment error)
-- no `while` loop—menu runs once and exits
-- fails to repeat until user quits
-- fails to implement a menu structure
+- uses items(0) instead of items[0]—confuses function call with indexing
+- items(-1) same error—indexing uses square brackets
+- fundamental confusion between list indexing and function syntax
 
 ## Competent
 
 ### Conceptual Answer
 
-- factually correct
-- can describe if/elif/else and when each applies
-- can describe boolean expressions and comparison operators
-- can explain for vs while with reasonable criteria
-- can describe menu loop (repeat until quit)
-- may lack depth on edge cases or combining structures
+- factually correct about lists
+- can describe indexing, negative indices, and common list methods
+- can describe iterating over a list with `for`
+- may lack depth on edge cases or efficient patterns
 
 ### Code Answer
 
 - complete and functional
-- correct if/elif/else and loop logic
-- menu repeats until user quits
-- correct comparison operators (==, !=, etc.)
-- may have long if/elif chains or minimal error handling
+- correct list usage (indexing, methods, iteration as required)
+- correct processing (loop, aggregate, format output)
+- may have minimal error handling or comments
 
 ### AI Use Answer
 
-- using AI for conditionals/loops, debugging, or explanation
+- using AI for list operations, debugging, or explanation
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
@@ -90,27 +66,15 @@ else:
 **Rating:** Competent
 
 ```python
-choice = ''
-while choice != 'Q':
-    print('A - Option A')
-    print('B - Option B')
-    print('Q - Quit')
-    choice = input('Choice: ').strip().upper()
-    if choice == 'A':
-        print('You chose A.')
-    elif choice == 'B':
-        print('You chose B.')
-    elif choice != 'Q':
-        print('Invalid. Try A, B, or Q.')
+first = items[0]
+last = items[-1]
 ```
 
 **Strengths:**
 
-- while loop until Q
-- correct == for comparisons
-- if/elif for A, B, and invalid
-- strip().upper() for flexible input
-- functional menu
+- correct indexing with square brackets
+- items[0] for first, items[-1] for last
+- functional and correct
 
 ## Exceptional
 
@@ -118,53 +82,37 @@ while choice != 'Q':
 
 - correct, clear, comprehensive
 - concrete examples
-- connects to problem decomposition (decision points, repetition, exit condition)
-- may discuss combining conditionals and loops
-- may discuss handling invalid input
+- connects to problem decomposition (collect items, process collection, output)
+- may discuss empty list or invalid index handling
 
 ### Code Answer
 
 - complete, functional, clear
-- well-structured conditionals and loops
-- clear menu with explicit exit condition
-- sensible handling of invalid input
-- readable variable names and structure
+- appropriate list usage throughout
+- clear processing and variable names
+- readable formatted output
+- may handle empty list or boundary cases
 
 ### AI Use Answer
 
-- AI to critique control flow, suggest conditions, or generate tests
+- AI to critique list logic, edge cases, or generate test data
 - strategic use to deepen understanding
-- improve structure and edge-case handling
+- improve code quality
 
 ### Example
 
 **Rating:** Exceptional
 
 ```python
-choice = ''
-while choice != 'Q':
-    print('\n--- Menu ---')
-    print('A - Option A')
-    print('B - Option B')
-    print('Q - Quit')
-    choice = input('Your choice: ').strip().upper()
-
-    if choice == 'A':
-        print('You chose A.')
-    elif choice == 'B':
-        print('You chose B.')
-    elif choice != 'Q':
-        print('Please enter A, B, or Q.')
-print('Goodbye.')
+first = items[0]   # first element (index 0)
+last = items[-1]   # last element (negative index)
 ```
 
 **Strengths:**
 
-- clear `while` loop; exit when choice becomes Q via the loop condition
-- readable menu layout and prompt
-- correct if/elif/else with invalid-input handling
-- goodbye message after loop
-- strip().upper() for flexible input
+- correct indexing [0] and [-1]
+- brief comments clarify meaning
+- clear and correct
 
 ## Code Answer Integrated Dimensions
 

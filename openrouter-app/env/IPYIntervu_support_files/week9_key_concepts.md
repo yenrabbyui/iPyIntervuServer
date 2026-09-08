@@ -1,19 +1,20 @@
-# Week 9: Lists
+# Week 9: Lists and Files
 
 **Module:** Module 3: Full Control
 
 ## Topics Covered
 
-- lists
-- data structures
-- loops (used with lists)
-- data processing
+- file I/O
+- reading from files
+- data processing using lists
+- data analysis using lists
+- formatted output
 
 ## Assessment scope
 
-- **Allowed:** Weeks 1–8 plus lists and list methods.
-- **Forbidden (later weeks):** file I/O (`open`, read/write files, `with open`) — Week 10 topic.
+- **Allowed:** Weeks 1–8 plus file I/O and combining lists with files.
+- **Forbidden:** concepts from weeks after Week 9 (none in this syllabus).
 
 ## Assessment note
 
-Do not use or mention dictionaries in any question, task, snippet, or coaching suggestion. Week 9 assesses **lists only** — no list-vs-dictionary comparisons.
+Do not use or mention dictionaries. Combine lists and file I/O only.

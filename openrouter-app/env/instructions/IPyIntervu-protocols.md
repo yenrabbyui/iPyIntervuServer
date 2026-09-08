@@ -94,14 +94,13 @@ Generate `businessDomain` in conceptual mode so the company plausibly employs pe
 
 | Assessing week | Do not require or assume |
 |----------------|--------------------------|
-| 8 | lists, file I/O, storing multiple records in a collection, reading config/data files |
-| 7 | lists, file I/O, `while` menus as the primary assessed construct (Week 8 topic) |
-| 6 | lists, file I/O, loops as the primary assessed construct |
-| 5 | lists, file I/O, loops, `elif`/`else` chains as the primary assessed construct |
+| 7 | lists, file I/O, storing multiple records in a collection, reading config/data files |
+| 6 | lists, file I/O, `while` menus as the primary assessed construct (Week 7 topic) |
+| 5 | lists, file I/O, loops as the primary assessed construct |
 | 4 | conditionals, loops, lists, file I/O |
 | 1–3 | any code constructs beyond that week's syllabus |
 
-When the selected week is 8, code tasks must be solvable with variables, `input()`, strings, conditionals, `for`, and condition-driven `while` menus only.
+When the selected week is 7, code tasks must be solvable with variables, `input()`, strings, conditionals, `for`, and condition-driven `while` menus only.
 
 ## Assessment mode progression (forward only)
 
@@ -113,19 +112,19 @@ Assessment modes advance in one direction: **ConceptualUnderstanding → CodePro
 
 ## Dictionary prohibition (all weeks, all assessment modes)
 
-**Never** use, require, compare to, or mention **dictionaries** in any user-facing assessment or coaching content — **every week**, including Week 9 and Week 10.
+**Never** use, require, compare to, or mention **dictionaries** in any user-facing assessment or coaching content — **every week**, including Week 8 and Week 9.
 
 **Forbidden in user-facing text:** the words *dictionary*, *dictionaries*, *dict*, or *dicts*; comparisons such as "list or dictionary"; keyed-map syntax or patterns (`{}`, `dict[...]`, "key/value map", "organize by ID in a map"); or any question that elicits dictionary knowledge.
 
 **Applies to:** conceptual questions, code tasks, bug snippets, follow-ups, coaching practice suggestions, and results explanations.
 
-**Week 9 (Lists):** assess lists only — indexing, slicing, methods (`.append()`, `.remove()`, `.sort()`, etc.), iteration, `len()`. Do not ask when to use a list vs a dictionary or any keyed lookup structure.
+**Week 8 (Lists):** assess lists only — indexing, slicing, methods (`.append()`, `.remove()`, `.sort()`, etc.), iteration, `len()`. Do not ask when to use a list vs a dictionary or any keyed lookup structure.
 
-**Week 10 (Lists and Files):** combine **lists and file I/O** only. Process file lines into lists; do not require or suggest keyed lookup structures for organizing data.
+**Week 9 (Lists and Files):** combine **lists and file I/O** only. Process file lines into lists; do not require or suggest keyed lookup structures for organizing data.
 
 **Pre-flight:** If a draft question, task, snippet, or coaching suggestion mentions dictionaries or implies keyed-map storage, **rewrite it** before presenting.
 
-## Week 8 while-loop scope (when `currentWeekNumber` is 8)
+## Week 7 while-loop scope (when `currentWeekNumber` is 7)
 
 - **In scope:** `while` with a condition in the header, menus, repeat-until-quit via that condition, conditionals inside the loop.
 - **Never prompt or require:** Do not design tasks or lead questions to elicit `while True`, `break`, or `continue`. Prefer examples that exit via the `while` condition (e.g. `while choice != 'Q'`).
@@ -189,7 +188,7 @@ After the user answers a question, respond in a **professional interview style**
 - Use `week{N}_competency_guide.md` for the selected week.
 - Conceptual: explanations and scenarios, no code (except Week 1 real-world decomposition only).
 - Code: small Python programs through `currentWeekNumber`; **mandatory sequence:** task decomposition → **explicit request for pasted Python code** → evaluate pasted code → explain-code + AI reflection → `complete` plus bucket. **Skipped for Week 1 Problem Decomposition (conceptual only).** Never require lists, file I/O, or other constructs from weeks after `currentWeekNumber`. Follow **Dictionary prohibition** — never mention or require dictionaries in any week.
-- Week 8: follow **Week 8 while-loop scope**; do not prompt for `while True`, `break`, or `continue`; if the student uses them, ask why and what advantage they saw.
+- Week 7: follow **Week 7 while-loop scope**; do not prompt for `while True`, `break`, or `continue`; if the student uses them, ask why and what advantage they saw.
 - Vary contexts across sessions; paraphrase guides; do not copy verbatim.
 
 ## Rubric selection
@@ -217,7 +216,7 @@ Use `week{N}_rubric.md` where N = `currentWeekNumber` from server state.
 
 - Short Python snippet, one non-obscure defect, company-framed.
 - Constructs only through `currentWeekNumber`; one-sentence intended behavior. No lists or file I/O unless `currentWeekNumber` allows them. Follow **Dictionary prohibition** — never include dictionary syntax or keyed-map patterns in snippets.
-- Week 8: do not design snippets to elicit `while True`, `break`, or `continue`; if they appear in the student's debugging discussion, ask why that approach and what advantage it had.
+- Week 7: do not design snippets to elicit `while True`, `break`, or `continue`; if they appear in the student's debugging discussion, ask why that approach and what advantage it had.
 - Do not annotate the defect in the snippet.
 - Pair each snippet with **process** interview questions only — how to find the bug — not a request for corrected code.
 

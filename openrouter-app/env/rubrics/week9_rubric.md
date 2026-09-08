@@ -1,21 +1,21 @@
 # Week 9 Assessment Rubric
 
-**Scope:** lists only — indexing, methods, iteration, `len()`. Dictionaries are not assessed and must not appear in prompts or examples.
-
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant errors about lists
-- confuses list indexing with function calls or other syntax
-- cannot articulate when a list is appropriate vs scalar variables
-- fundamental misunderstanding of list methods or iteration
+- significant errors about lists 
+- does not understand file open/read/close or with
+- cannot articulate when to use list
+- fundamental misunderstanding of data processing from files
 
 ### Code Answer
 
 - non-functional or major syntax/logic errors
-- wrong list usage (e.g. wrong indexing, `.append()` on a non-list, off-by-one in loops)
-- does not process or format list data correctly
+- wrong list usage (e.g. wrong indexing or append logic)
+- file not opened correctly (e.g. write mode when reading)
+- no with statement or file not closed
+- does not process or format file data correctly
 - completely misses the prompt
 
 ### AI Use Answer
@@ -29,35 +29,43 @@
 **Rating:** Not Yet Ready
 
 ```python
-first = items(0)
-last = items(-1)
+f = open('numbers.txt')
+data = f.read()
+numbers = data
+total = sum(numbers)
+print(total, total / len(numbers))
 ```
 
 **Issues:**
 
-- uses items(0) instead of items[0]—confuses function call with indexing
-- items(-1) same error—indexing uses square brackets
-- fundamental confusion between list indexing and function syntax
+- f.read() returns one string, not a list of numbers
+- numbers is a string; sum() and len() on a string don't give sum/count of numbers
+- no splitting by newline or conversion to int/float
+- file not closed (no with or close())
+- fails to implement reading numbers and computing sum/average
 
 ## Competent
 
 ### Conceptual Answer
 
-- factually correct about lists
-- can describe indexing, negative indices, and common list methods
-- can describe iterating over a list with `for`
+- factually correct
+- can describe lists and when to use them with file data
+- can describe file open/read/readlines and with
+- can describe basic data processing (loop, convert, aggregate)
 - may lack depth on edge cases or efficient patterns
 
 ### Code Answer
 
 - complete and functional
-- correct list usage (indexing, methods, iteration as required)
-- correct processing (loop, aggregate, format output)
+- correct list usage
+- correct file open and read (with open, readlines or read)
+- correct processing (loop, convert, aggregate)
+- correct formatted output
 - may have minimal error handling or comments
 
 ### AI Use Answer
 
-- using AI for list operations, debugging, or explanation
+- using AI for file I/O, lists, debugging, or explanation
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
@@ -66,15 +74,22 @@ last = items(-1)
 **Rating:** Competent
 
 ```python
-first = items[0]
-last = items[-1]
+numbers = []
+with open('numbers.txt') as f:
+    for line in f:
+        numbers.append(float(line.strip()))
+total = sum(numbers)
+avg = total / len(numbers)
+print(f'Sum: {total}, Average: {avg}')
 ```
 
 **Strengths:**
 
-- correct indexing with square brackets
-- items[0] for first, items[-1] for last
-- functional and correct
+- uses with open for safe file handling
+- reads line by line, strips, converts to float
+- stores in list and uses sum() and len()
+- formatted output with f-string
+- correct logic
 
 ## Exceptional
 
@@ -82,20 +97,22 @@ last = items[-1]
 
 - correct, clear, comprehensive
 - concrete examples
-- connects to problem decomposition (collect items, process collection, output)
-- may discuss empty list or invalid index handling
+- connects to problem decomposition (input file, process, output)
+- may discuss choosing list operations for file data
+- may discuss empty file or bad data handling
 
 ### Code Answer
 
 - complete, functional, clear
-- appropriate list usage throughout
+- appropriate list usage
+- correct file handling (with open, clear reading)
 - clear processing and variable names
 - readable formatted output
-- may handle empty list or boundary cases
+- may handle empty file or invalid lines
 
 ### AI Use Answer
 
-- AI to critique list logic, edge cases, or generate test data
+- AI to critique list usage, file handling, or generate test files
 - strategic use to deepen understanding
 - improve code quality
 
@@ -104,15 +121,31 @@ last = items[-1]
 **Rating:** Exceptional
 
 ```python
-first = items[0]   # first element (index 0)
-last = items[-1]   # last element (negative index)
+# Input: read numbers from file into a list
+numbers = []
+with open('numbers.txt') as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            numbers.append(float(line))
+
+# Process: compute sum and average
+if numbers:
+    total = sum(numbers)
+    average = total / len(numbers)
+    print(f'Sum: {total}')
+    print(f'Average: {average}')
+else:
+    print('No numbers in file.')
 ```
 
 **Strengths:**
 
-- correct indexing [0] and [-1]
-- brief comments clarify meaning
-- clear and correct
+- clear input-process-output structure
+- with open; loop over lines; strip and skip blank lines
+- converts to float and appends to list
+- handles empty file (if numbers: avoids divide by zero)
+- formatted output; clear message when file is empty
 
 ## Code Answer Integrated Dimensions
 

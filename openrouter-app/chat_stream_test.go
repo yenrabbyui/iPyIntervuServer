@@ -9,7 +9,7 @@ func TestHandoffVisibleIncludesPriorModeClosing(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase: phaseAssessmentInProgress,
 		ActiveMode:        modeBug,
-		CurrentWeekNumber: 9,
+		CurrentWeekNumber: 8,
 	}
 	codeClose := "Thanks. That covers the code portion.\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"complete\", \"codeAssessmentBucket\": \"Competent\"}\n```"
 	bugIntro := strings.Join([]string{

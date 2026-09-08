@@ -1,21 +1,21 @@
-# Week 9: Lists
+# Week 9: Lists and Files
 
 ## Problem Decomposition Context
 
-Many problems work with collections. Identify when lists are needed. Lists store multiple items. Example: Process student scores → need list.
+Some problems read from files. Identify when file I/O is needed. Example: Load data from file → read, process, output.
 
 ## Key Concepts Overview
 
-Lists: [item1, item2, ...]. Operations: accessing, modifying, iterating. Methods: .append(), .remove(), .sort(). Problem decomposition: when lists are needed.
+File I/O: reading from files. `with open()`. Problem decomposition: when files are needed. Combining lists and files (e.g. list of lines, split fields into list elements).
 
 ## Simple Example Demonstration
 
-Average of test scores. Input (list of scores), Process (sum, divide by count), Output (average). for score in scores: total += score; average = total / len(scores).
+Read student scores from a file into a list, compute average. Input (file), Process (read lines, parse numbers into a list, sum and count), Output (average). `with open`; `for line in file`; `split`; append to list; `sum` / `len`.
 
 ## Connection to AI Tools
 
-Pythonista2: How do lists work? What list methods? Practice lists for domain.
+Pythonista2: How read from files? Practice file I/O with lists.
 
 ## Assessment note
 
-Do not use or mention dictionaries in interview prompts or coaching. Assess lists only — indexing, methods, iteration — not keyed lookup structures.
+Do not use or mention dictionaries in interview prompts, code tasks, or coaching suggestions. Organize file data with lists only.

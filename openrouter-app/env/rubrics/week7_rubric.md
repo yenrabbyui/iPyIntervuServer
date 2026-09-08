@@ -1,5 +1,17 @@
 # Week 7 Assessment Rubric
 
+## Assessment scope (Week 7 — while loops and menus)
+
+**In scope:** `while` loops with a condition in the header (e.g. `while choice != 'Q'`), menus, conditionals, repeat-until-quit logic.
+
+**Never prompt or require:** `while True`, `break`, or `continue`. Do not design tasks or lead conceptual questions to elicit those constructs.
+
+**If the student uses them:** When submitted code (or a voluntary explanation) includes `while True`, `break`, or `continue`, treat it as acceptable. Ask pointed interview follow-ups: why they chose that approach and what advantage it had for this problem. Do not penalize for using them; assess understanding of their choice.
+
+**Examples in this rubric** use condition-driven `while` loops only; do not introduce `while True` or `break` in model solutions.
+
+**Forbidden constructs when assessing Week 7:** lists, file I/O, or any task that requires storing multiple records in a collection or reading external data files. Prior weeks (variables, input, strings, conditionals, `for`, `while` menus) are allowed as support.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
@@ -29,14 +41,24 @@
 
 **Rating:** Not Yet Ready
 
-You use for when you have a list and while when you don't. They're kind of the same.
+```python
+choice = input('A or B or Q')
+if choice = 'A':
+  print('A')
+elif choice = 'B':
+  print('B')
+elif choice == 'Q':
+  print('Goodbye.')
+else:
+  print('Invalid choice.')
+```
 
 **Issues:**
 
-- vague and partially wrong
-- for is for iterating over a known sequence (or range); while is for repeating until a condition is false
-- does not give clear criteria (e.g. known number of items vs 'until user quits')
-- saying they're the same shows misunderstanding
+- uses = instead of == for comparison (syntax/assignment error)
+- no `while` loop—menu runs once and exits
+- fails to repeat until user quits
+- fails to implement a menu structure
 
 ## Competent
 
@@ -67,13 +89,28 @@ You use for when you have a list and while when you don't. They're kind of the s
 
 **Rating:** Competent
 
-Use a for loop when you know how many times to iterate—like going through each item in a list or a range of numbers. Use a while loop when you're repeating until a condition becomes false, like when the user types 'quit' or until a value meets some condition. So for loops are for fixed sequences, while loops are for 'keep going until something changes.'
+```python
+choice = ''
+while choice != 'Q':
+    print('A - Option A')
+    print('B - Option B')
+    print('Q - Quit')
+    choice = input('Choice: ').strip().upper()
+    if choice == 'A':
+        print('You chose A.')
+    elif choice == 'B':
+        print('You chose B.')
+    elif choice != 'Q':
+        print('Invalid. Try A, B, or Q.')
+```
 
 **Strengths:**
 
-- correct distinction (known iteration vs until condition)
-- gives concrete examples (list/range vs user quits)
-- accurate and practical
+- while loop until Q
+- correct == for comparisons
+- if/elif for A, B, and invalid
+- strip().upper() for flexible input
+- functional menu
 
 ## Exceptional
 
@@ -103,14 +140,31 @@ Use a for loop when you know how many times to iterate—like going through each
 
 **Rating:** Exceptional
 
-Use a for loop when you're iterating over a known sequence—a list, a range(n), or anything you can step through one item at a time with a fixed number of iterations. Use a while loop when the number of iterations isn't known in advance and depends on a condition (e.g. 'repeat until the user enters Q' or 'repeat until score reaches 100'). In problem decomposition: if you can say 'do this for each X,' use for; if you say 'keep doing this until Y happens,' use while. Be careful with while—you need a condition that eventually becomes false or you get an infinite loop.
+```python
+choice = ''
+while choice != 'Q':
+    print('\n--- Menu ---')
+    print('A - Option A')
+    print('B - Option B')
+    print('Q - Quit')
+    choice = input('Your choice: ').strip().upper()
+
+    if choice == 'A':
+        print('You chose A.')
+    elif choice == 'B':
+        print('You chose B.')
+    elif choice != 'Q':
+        print('Please enter A, B, or Q.')
+print('Goodbye.')
+```
 
 **Strengths:**
 
-- clear criteria (known sequence vs condition-based)
-- concrete examples (list, range vs user quits, score)
-- connects to problem decomposition
-- cautions about infinite loops
+- clear `while` loop; exit when choice becomes Q via the loop condition
+- readable menu layout and prompt
+- correct if/elif/else with invalid-input handling
+- goodbye message after loop
+- strip().upper() for flexible input
 
 ## Code Answer Integrated Dimensions
 

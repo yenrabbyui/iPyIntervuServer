@@ -1,5 +1,8 @@
 package main
 
+// lastSyllabusWeek is the final week of the CSE 110 syllabus.
+const lastSyllabusWeek = 9
+
 // CSE 110 syllabus: concepts first introduced each week (weeks 1..N are allowed support).
 var conceptsIntroducedByWeek = map[int][]string{
 	1: {
@@ -30,6 +33,9 @@ var conceptsIntroducedByWeek = map[int][]string{
 	},
 	5: {
 		"if statements",
+		"elif",
+		"else",
+		"multi-branch conditionals",
 		"comparison operators",
 		"boolean expressions",
 		"and",
@@ -37,27 +43,22 @@ var conceptsIntroducedByWeek = map[int][]string{
 		"not",
 	},
 	6: {
-		"elif",
-		"else",
-		"multi-branch conditionals",
-	},
-	7: {
 		"for loops",
 		"range()",
 		"iterating over sequences",
 	},
-	8: {
+	7: {
 		"while loops (condition in header)",
 		"menus",
 		"repeat until quit via while condition",
 	},
-	9: {
+	8: {
 		"lists",
 		"list indexing",
 		"list methods (.append, .remove, .sort, etc.)",
 		"len() on lists",
 	},
-	10: {
+	9: {
 		"file I/O",
 		"open()",
 		"read()",
@@ -83,7 +84,7 @@ func forbiddenConceptsFromLaterWeeks(currentWeek int) []string {
 		return nil
 	}
 	var forbidden []string
-	for week := currentWeek + 1; week <= 10; week++ {
+	for week := currentWeek + 1; week <= lastSyllabusWeek; week++ {
 		forbidden = append(forbidden, conceptsIntroducedByWeek[week]...)
 	}
 	return forbidden

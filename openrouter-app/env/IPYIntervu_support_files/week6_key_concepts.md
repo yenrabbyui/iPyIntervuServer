@@ -1,16 +1,14 @@
-# Week 6: elif/else Statements
+# Week 6: for Loops
 
 **Module:** Module 2: Gaining Power
 
 ## Topics Covered
 
-- elif statements
-- else statements
-- conditional logic (advanced)
-- boolean expressions (and, or, not)
-- comparison operators
+- loops
+- for loops
+- control structures
 
 ## Assessment scope
 
-- **Allowed:** Weeks 1–5 plus `elif`, `else`, multi-branch conditionals.
-- **Forbidden (later weeks):** loops as the primary assessed skill (Week 7+), lists, file I/O.
+- **Allowed:** Weeks 1–5 plus `for`, `range()`, iterating sequences.
+- **Forbidden (later weeks):** `while` menus as the primary assessed skill (Week 7), lists, file I/O.

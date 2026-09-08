@@ -25,7 +25,6 @@ import (
 //go:embed env/IPYIntervu_support_files/week7_key_concepts.md
 //go:embed env/IPYIntervu_support_files/week8_key_concepts.md
 //go:embed env/IPYIntervu_support_files/week9_key_concepts.md
-//go:embed env/IPYIntervu_support_files/week10_key_concepts.md
 //go:embed env/IPYIntervu_support_files/week1_competency_guide.md
 //go:embed env/IPYIntervu_support_files/week2_competency_guide.md
 //go:embed env/IPYIntervu_support_files/week3_competency_guide.md
@@ -35,7 +34,6 @@ import (
 //go:embed env/IPYIntervu_support_files/week7_competency_guide.md
 //go:embed env/IPYIntervu_support_files/week8_competency_guide.md
 //go:embed env/IPYIntervu_support_files/week9_competency_guide.md
-//go:embed env/IPYIntervu_support_files/week10_competency_guide.md
 //go:embed env/rubrics/week1_rubric.md
 //go:embed env/rubrics/week2_rubric.md
 //go:embed env/rubrics/week3_rubric.md
@@ -45,7 +43,6 @@ import (
 //go:embed env/rubrics/week7_rubric.md
 //go:embed env/rubrics/week8_rubric.md
 //go:embed env/rubrics/week9_rubric.md
-//go:embed env/rubrics/week10_rubric.md
 //go:embed env/rubrics/final_assessment_rubric.md
 var instructionFS embed.FS
 

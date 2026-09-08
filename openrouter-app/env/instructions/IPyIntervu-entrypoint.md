@@ -193,12 +193,11 @@ Thanks - I have your major as [major].
 - Week 2 - Variables & Expressions
 - Week 3 - Input & Type Casting
 - Week 4 - String Methods
-- Week 5 - if Statements (Conditionals & Logic)
-- Week 6 - elif/else Statements (Conditionals & Logic)
-- Week 7 - for Loops (Repetition over sequences)
-- Week 8 - while Loops & Menus
-- Week 9 - Lists
-- Week 10 - Lists and Files
+- Week 5 - Conditionals (if/elif/else)
+- Week 6 - for Loops (Repetition over sequences)
+- Week 7 - while Loops & Menus
+- Week 8 - Lists
+- Week 9 - Lists and Files
 
 Please choose one of these key concepts for us to assess today.
 
@@ -214,12 +213,11 @@ When showing the weekly list, output **every** item below as a Markdown bullet, 
 - Week 2 - Variables & Expressions
 - Week 3 - Input & Type Casting
 - Week 4 - String Methods
-- Week 5 - if Statements (Conditionals & Logic)
-- Week 6 - elif/else Statements (Conditionals & Logic)
-- Week 7 - for Loops (Repetition over sequences)
-- Week 8 - while Loops & Menus
-- Week 9 - Lists
-- Week 10 - Lists and Files
+- Week 5 - Conditionals (if/elif/else)
+- Week 6 - for Loops (Repetition over sequences)
+- Week 7 - while Loops & Menus
+- Week 8 - Lists
+- Week 9 - Lists and Files
 
 ## Content guardrails (all phases)
 

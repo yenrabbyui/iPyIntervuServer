@@ -62,7 +62,7 @@ func TestClientVisibleAssistantContentGuardedDuringAssessment(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase: phaseAssessmentInProgress,
 		ActiveMode:        modeConceptual,
-		CurrentWeekNumber: 9,
+		CurrentWeekNumber: 8,
 	}
 	raw := "What is slicing? Slicing lets you access a portion of a sequence using start and stop indices.\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"in_progress\"}\n```"
 	got := clientVisibleAssistantContentGuarded(raw, state)
@@ -79,7 +79,7 @@ func TestClientVisibleAssistantContentGuardedDisabledInCoaching(t *testing.T) {
 		ConversationPhase: phaseAssessmentInProgress,
 		ActiveMode:        modeCoaching,
 		CoachingRequested: true,
-		CurrentWeekNumber: 9,
+		CurrentWeekNumber: 8,
 	}
 	raw := "What is slicing? Slicing lets you access a portion of a sequence."
 	got := clientVisibleAssistantContentGuarded(raw, state)
@@ -199,7 +199,7 @@ func TestModeHandoffCodeIntroGuardBehavior(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase: phaseAssessmentInProgress,
 		ActiveMode:        modeCode,
-		CurrentWeekNumber: 9,
+		CurrentWeekNumber: 8,
 	}
 	for name, code := range map[string]string{"incomplete": codeIncomplete, "twoQuestions": codeTwoQuestions} {
 		withSync := code + "\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"in_progress\"}\n```"

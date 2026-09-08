@@ -152,8 +152,8 @@ func TestPostProcessResultsContinuationAfterBug(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase:          phaseAssessmentInProgress,
 		ActiveMode:                 modeBug,
-		CurrentWeekNumber:          8,
-		SelectedKeyConcept:         "Week 8 - while Loops & Menus",
+		CurrentWeekNumber:          7,
+		SelectedKeyConcept:         "Week 7 - while Loops & Menus",
 		ConceptualAssessmentBucket: bucketCompetent,
 		CodeAssessmentBucket:       bucketCompetent,
 	}

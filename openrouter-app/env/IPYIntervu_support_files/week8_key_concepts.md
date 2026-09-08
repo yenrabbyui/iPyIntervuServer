@@ -1,28 +1,19 @@
-# Week 8: while Loops & Menus
+# Week 8: Lists
 
-**Module:** Module 2: Gaining Power
+**Module:** Module 3: Full Control
 
 ## Topics Covered
 
-- loops (while loops with a condition in the header)
-- conditionals
-- control structures
-- menu systems (repeat until quit via the `while` condition)
-- interactive applications
+- lists
+- data structures
+- loops (used with lists)
+- data processing
 
-## Out of scope for interview prompts
+## Assessment scope
 
-Do not ask the student to explain, use, or prefer `while True`, `break`, or `continue` unless they already used them in their own code or answer.
+- **Allowed:** Weeks 1–7 plus lists and list methods.
+- **Forbidden (later weeks):** file I/O (`open`, read/write files, `with open`) — Week 9 topic.
 
-## Forbidden: concepts from later weeks (Week 9+)
+## Assessment note
 
-Week 8 assessments must **not** require or assume:
-
-- **Lists** — `[]`, `.append()`, storing multiple records, history logs, collections of items
-- **File I/O** — `open()`, reading/writing files, loading config or datasets from disk
-
-Use scalar variables, `input()`, strings, conditionals, `for`, and condition-driven `while` menus only. Example: a menu-driven calculator or lab tool that repeats until quit—not “save each result to a list” or “read options from a file.”
-
-## If the student uses them voluntarily
-
-Accept the approach. Ask why they chose it and what advantage it had for the problem. Assessment still focuses on condition-driven `while` loops and menus in tasks you assign.
+Do not use or mention dictionaries in any question, task, snippet, or coaching suggestion. Week 8 assesses **lists only** — no list-vs-dictionary comparisons.

@@ -1,5 +1,7 @@
 # Week 5 Assessment Rubric
 
+Week 5 covers conditionals end to end: `if`, `elif`, `else`, comparison operators, and boolean logic. Each level below gives two worked examples — one single-branch `if`/`else`, one multi-branch `elif` chain — so both halves of the concept are graded against the same criteria.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
@@ -25,9 +27,11 @@
 - cannot explain how they verified the AI's output
 - unethical use or dependency that inhibits learning
 
-### Example
+### Examples
 
 **Rating:** Not Yet Ready
+
+Single-branch conditional:
 
 ```python
 if age = 18:
@@ -41,6 +45,21 @@ else print('minor')
 - missing colon after else
 - does not use >= for 18 or more
 - syntax and logic errors
+
+Multi-branch conditional:
+
+```python
+if grade >= 90: print('A')
+if grade >= 80: print('B')
+if grade >= 70: print('C')
+if grade < 70: print('F')
+```
+
+**Issues:**
+
+- uses separate ifs instead of elif—multiple letters print for same grade
+- does not use elif so one grade can match several branches
+- fundamental misunderstanding of mutually exclusive branches
 
 ## Competent
 
@@ -67,9 +86,11 @@ else print('minor')
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
-### Example
+### Examples
 
 **Rating:** Competent
+
+Single-branch conditional:
 
 ```python
 if age >= 18:
@@ -83,6 +104,25 @@ else:
 - correct >= for 18 or more
 - correct if/else with proper colons
 - functional and clear
+
+Multi-branch conditional:
+
+```python
+if grade >= 90:
+    print('A')
+elif grade >= 80:
+    print('B')
+elif grade >= 70:
+    print('C')
+else:
+    print('F')
+```
+
+**Strengths:**
+
+- correct elif chain—mutually exclusive
+- correct thresholds (90+, 80-89, 70-79)
+- functional and correct
 
 ## Exceptional
 
@@ -108,9 +148,11 @@ else:
 - strategic use to deepen understanding
 - improve structure and edge-case handling
 
-### Example
+### Examples
 
 **Rating:** Exceptional
+
+Single-branch conditional:
 
 ```python
 if age >= 18:
@@ -125,6 +167,26 @@ else:
 - correct >= and if/else
 - clear and readable
 - brief comment on edge case
+
+Multi-branch conditional:
+
+```python
+if grade >= 90:
+    print('A')
+elif grade >= 80:
+    print('B')
+elif grade >= 70:
+    print('C')
+else:
+    print('F')
+# Order matters: check highest first so each grade hits exactly one branch.
+```
+
+**Strengths:**
+
+- correct elif chain and thresholds
+- comment explains why order matters
+- clear structure
 
 ## Code Answer Integrated Dimensions
 

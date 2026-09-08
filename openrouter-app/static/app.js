@@ -65,11 +65,25 @@ function setChatEnabled(enabled) {
   updateComposerEnabled();
 }
 
+function focusPrompt() {
+  if (!isAuthenticated || promptEl.disabled) {
+    return;
+  }
+  promptEl.focus({ preventScroll: true });
+}
+
 function updateComposerEnabled() {
   const busy = isAuthenticated && isWaitingForResponse();
+  const wasDisabled = promptEl.disabled;
   promptEl.disabled = !isAuthenticated || busy;
   sendBtn.disabled = !isAuthenticated || busy;
   chatForm.setAttribute("aria-busy", busy ? "true" : "false");
+  // Disabling the textarea or the Send button drops focus to <body>, so put the
+  // caret back in the composer the moment it becomes usable again — on first
+  // unlock after login and after every turn finishes.
+  if (wasDisabled && !promptEl.disabled) {
+    focusPrompt();
+  }
 }
 
 function dotAnimationText(base, phase) {
@@ -757,7 +771,6 @@ authFormEl.addEventListener("submit", async (event) => {
 
   try {
     await completeAuthentication(publicKey);
-    promptEl.focus();
   } catch (error) {
     showAuthLoginForm(error.message || "Invalid public key or authentication failed.");
   } finally {
@@ -770,6 +783,7 @@ chatForm.addEventListener("submit", async (event) => {
 
   const text = promptEl.value.trim();
   if (!text || !isAuthenticated) {
+    focusPrompt();
     return;
   }
 
@@ -777,6 +791,7 @@ chatForm.addEventListener("submit", async (event) => {
     showError(
       `Your response was too long. Please limit your message to ${MAX_USER_MESSAGE_CHARS} characters or fewer.`
     );
+    focusPrompt();
     return;
   }
 
@@ -789,9 +804,7 @@ chatForm.addEventListener("submit", async (event) => {
       showError(formatUserFacingError(error));
     }
   } finally {
-    if (isAuthenticated && !isWaitingForResponse()) {
-      promptEl.focus();
-    }
+    focusPrompt();
   }
 });
 

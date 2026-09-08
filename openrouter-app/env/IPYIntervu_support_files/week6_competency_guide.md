@@ -1,17 +1,17 @@
-# Week 6: if Statements
+# Week 6: for Loops
 
 ## Problem Decomposition Context
 
-Many problems require decisions. Identify decision points. if statements make decisions. Example: Determine pass/fail → decision: score >= 70?
+Many problems involve repetition. Identify repetitive patterns. for loops repeat actions. Example: Process list of students → repeat for each student.
 
 ## Key Concepts Overview
 
-if statements. Boolean expressions. Comparison operators: ==, !=, <, >, <=, >=. Problem decomposition: where decisions are needed.
+for loops. Loop variables. Iteration. Problem decomposition: what repeats, what changes.
 
 ## Simple Example Demonstration
 
-Determine if student passed. Input (score), Process (check score >= 70), Output (pass/fail). if score >= 70: print('Pass').
+Calculate total for multiple items. Input (list of prices), Process (repeat: add each price), Output (total). for price in prices: total = total + price.
 
 ## Connection to AI Tools
 
-Pythonista2: How do if statements work? What are comparison operators? Practice decision points in domain.
+Pythonista2: How do for loops work? for vs while? Practice repetition in domain.
