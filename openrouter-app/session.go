@@ -14,7 +14,10 @@ import (
 	"time"
 )
 
-const sessionCookieName = "ipyintervu_session"
+const (
+	sessionCookieName  = "ipyintervu_session"
+	sessionTokenHeader = "X-Session-Token"
+)
 
 type sessionClaims struct {
 	ExpiresAt int64  `json:"exp"`
@@ -125,7 +128,18 @@ func (m *sessionManager) clearCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (m *sessionManager) tokenFromRequest(r *http.Request) (string, error) {
+// tokenFromRequest prefers the per-page header token over the cookie. The
+// cookie is shared by every tab in the browser, so a second tab logging in
+// would otherwise move this tab onto the other tab's session.
+func (m *sessionManager) tokenFromRequest(r *http.Request) (token string, fromHeader bool, err error) {
+	if headerToken := strings.TrimSpace(r.Header.Get(sessionTokenHeader)); headerToken != "" {
+		return headerToken, true, nil
+	}
+	token, err = m.tokenFromCookie(r)
+	return token, false, err
+}
+
+func (m *sessionManager) tokenFromCookie(r *http.Request) (string, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return "", err

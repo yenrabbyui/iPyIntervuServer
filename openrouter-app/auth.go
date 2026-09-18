@@ -190,7 +190,8 @@ func (a *authService) handleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.sessions.setCookie(w, r, token)
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"session_token": token})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

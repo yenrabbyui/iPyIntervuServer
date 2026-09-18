@@ -19,6 +19,13 @@ const earlyCoachingBannerEl = document.getElementById("early-coaching-banner");
 
 const conversation = [];
 let isAuthenticated = false;
+// Session token for this page only. The session cookie is shared by every tab,
+// so another tab logging in would otherwise switch this page to its session.
+let sessionToken = "";
+
+function sessionHeaders(extra = {}) {
+  return sessionToken ? { ...extra, [SESSION_TOKEN_HEADER]: sessionToken } : extra;
+}
 let activeChatAbort = null;
 let chatInFlight = false;
 
@@ -30,6 +37,7 @@ const CHAT_READ_TIMEOUT_MS = 120_000;
 const BOOTSTRAP_TURN_ID = "ipyintervu-bootstrap";
 const CHAT_MODEL = "deepseek/deepseek-v4-flash";
 const TURN_ID_HEADER = "X-Turn-Id";
+const SESSION_TOKEN_HEADER = "X-Session-Token";
 const PROMPT_PLACEHOLDER_IDLE = "Tell me your answer.";
 const PROMPT_PLACEHOLDER_WORKING_BASE = "considering your response";
 const AUTH_LOGGING_IN_BASE = "Logging you in";
@@ -414,7 +422,10 @@ async function refreshSessionState() {
     return;
   }
 
-  const response = await fetch("/api/session/state", { credentials: "include" });
+  const response = await fetch("/api/session/state", {
+    credentials: "include",
+    headers: sessionHeaders(),
+  });
   if (response.status === 401) {
     return;
   }
@@ -448,16 +459,19 @@ async function authenticate(publicKeyPem) {
   if (!verifyResponse.ok) {
     throw new Error("Authentication failed.");
   }
+
+  const verified = await verifyResponse.json().catch(() => null);
+  sessionToken = verified?.session_token || "";
 }
 
 async function bootstrapSession() {
   const response = await fetch("/api/session/bootstrap", {
     method: "POST",
     credentials: "include",
-    headers: {
+    headers: sessionHeaders({
       "Content-Type": "application/json",
       [TURN_ID_HEADER]: BOOTSTRAP_TURN_ID,
-    },
+    }),
     body: JSON.stringify({ model: CHAT_MODEL }),
   });
 
@@ -697,10 +711,10 @@ async function executeChatRequest({
       method: "POST",
       credentials: "include",
       signal: controller.signal,
-      headers: {
+      headers: sessionHeaders({
         "Content-Type": "application/json",
         [TURN_ID_HEADER]: turnId,
-      },
+      }),
       body: JSON.stringify(payload),
     });
 

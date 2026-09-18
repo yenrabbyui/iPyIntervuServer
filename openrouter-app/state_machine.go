@@ -127,6 +127,11 @@ func applyPreChatUserUpdate(state *AgentSessionState, userMessage string) {
 func applyBootstrapState(state *AgentSessionState, assistant string) {
 	state.StartupPromptShown = true
 	state.FirstUserMessageSeen = true
+	if state.StudentMajor != "" || state.ConversationPhase != phaseAwaitingMajor {
+		// A chat turn already advanced this session (late bootstrap completion,
+		// e.g. a second tab sharing the session cookie); do not rewind it.
+		return
+	}
 	state.ConversationPhase = phaseAwaitingMajor
 	state.WaitingForUserResponse = true
 	state.PendingQuestion = "studentMajor"
