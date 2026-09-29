@@ -53,9 +53,9 @@ type ipyintervuTail struct {
 }
 
 var jsonPhasePatterns = map[string]*regexp.Regexp{
-	"conceptualAssessmentPhase": regexp.MustCompile(`(?i)"conceptualAssessmentPhase"\s*:\s*"(in[_ -]?progress|complete)"`),
-	"codeAssessmentPhase":       regexp.MustCompile(`(?i)"codeAssessmentPhase"\s*:\s*"(in[_ -]?progress|complete)"`),
-	"bugAssessmentPhase":        regexp.MustCompile(`(?i)"bugAssessmentPhase"\s*:\s*"(in[_ -]?progress|complete)"`),
+	"conceptualAssessmentPhase": regexp.MustCompile(`(?i)"conceptualAssessmentPhase"\s*:\s*"(in[_ -]?progress|completed?)"`),
+	"codeAssessmentPhase":       regexp.MustCompile(`(?i)"codeAssessmentPhase"\s*:\s*"(in[_ -]?progress|completed?)"`),
+	"bugAssessmentPhase":        regexp.MustCompile(`(?i)"bugAssessmentPhase"\s*:\s*"(in[_ -]?progress|completed?)"`),
 }
 
 func truncateSummary(text string, max int) string {
@@ -146,6 +146,16 @@ func parseAssistantStateSync(state *AgentSessionState, assistant string) {
 		applyIPyIntervuTailJSON(state, partial[1])
 	}
 
+	// Phase before bucket: a "complete" in this reply must be applied before the
+	// bucket, or applyLegacyBucketSync rejects the bucket against the prior in_progress.
+	for field, pattern := range jsonPhasePatterns {
+		match := pattern.FindStringSubmatch(assistant)
+		if len(match) < 2 {
+			continue
+		}
+		applyModePhaseFromTail(state, phaseFieldToMode(field), normalizeAssessmentPhase(match[1]))
+	}
+
 	for field, pattern := range bucketPatterns {
 		match := pattern.FindStringSubmatch(assistant)
 		if len(match) < 2 {
@@ -177,14 +187,6 @@ func parseAssistantStateSync(state *AgentSessionState, assistant string) {
 		case "bugAssessmentBucket":
 			applyLegacyBucketSync(state, modeBug, match[1])
 		}
-	}
-
-	for field, pattern := range jsonPhasePatterns {
-		match := pattern.FindStringSubmatch(assistant)
-		if len(match) < 2 {
-			continue
-		}
-		applyModePhaseFromTail(state, phaseFieldToMode(field), match[1])
 	}
 
 	detectProseAssessmentBuckets(state, assistant)
@@ -670,6 +672,14 @@ func modeContinuationUserMessage(state *AgentSessionState) string {
 
 const maxChatInternalTurns = 6
 
+// phaseClosingMessage is shown in place of the model's reply that finished a phase.
+const phaseClosingMessage = "Thanks — that completes this part of the interview."
+
+// maxCorrectiveRetries bounds corrective model calls per user turn. One was not enough:
+// a retry reply can itself break the rules (e.g. answer the server note with an
+// explanation and no question), and that reply was then shown to the student.
+const maxCorrectiveRetries = 2
+
 type assistantTurnFollowUp struct {
 	ContinueTurn     bool
 	Handoff          string
@@ -787,7 +797,11 @@ func postProcessAssistantTurnWithGuard(state *AgentSessionState, assistant strin
 		logAssessmentViolations(syncLog.sessionID, syncLog.turnID, syncLog.modeTurn, violations)
 	}
 
-	if correctiveRetryAttempted && violations.StillInvalidAfterRetry() {
+	// After the one corrective retry, deliver the retry reply (the client-visible guard
+	// trims it to a single question) unless nothing usable is left. Failing closed on
+	// any residual violation left students stuck re-sending the same answer.
+	if correctiveRetryAttempted && violations.StillInvalidAfterRetry() &&
+		clientVisibleAssistantContentGuarded(assistant, state) == "" {
 		return assistantTurnFollowUp{
 			Kind:            "fail_closed",
 			DirectAssistant: buildAssessmentTurnFailureMessage(),

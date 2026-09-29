@@ -1,19 +1,21 @@
 # Week 2 Assessment Rubric
 
+**Scope:** weeks 1–2 only — variables, data types (int, float, str, and bool are all valid variable types), expressions, `print()`, and basic output formatting. Code tasks give their values directly in the code; do not expect `input()`, type casting, string methods, conditionals, or loops. A script that assigns the given values, computes the result with expressions, and prints it is complete.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant factual errors about variables, types, or I/O
+- significant factual errors about variables, types, expressions, or print()
 - overly vague or simplistic
-- fundamental misunderstanding of type casting or input()
-- cannot articulate when to use int(), float(), or str()
+- fundamental misunderstanding of assignment (what a variable holds after it is assigned)
+- cannot tell int, float, str, and bool values apart
 - confuses data types or expression evaluation
 
 ### Code Answer
 
 - non-functional or major syntax errors
-- uses input() but does not cast to int/float when needed
+- hard-codes the final answer instead of computing it with an expression
 - wrong or missing variables for the problem
 - incorrect expressions or arithmetic
 - no or incorrect use of print() or formatted strings
@@ -33,7 +35,7 @@ A variable is like a box. You can do math with them like x + y.
 
 **Issues:**
 
-- too vague - does not name data types (int, float, str)
+- too vague - does not name data types (int, float, str, bool)
 - does not explain that variables store values
 - does not give a concrete example (e.g. area = length * width)
 - confuses variable with expression
@@ -43,9 +45,9 @@ A variable is like a box. You can do math with them like x + y.
 ### Conceptual Answer
 
 - factually correct
-- covers main points (variables, types, input, output)
-- can describe when to use type casting
-- can describe formatted strings or string methods
+- covers main points (variables, types, expressions, output with print())
+- can describe how an expression is evaluated using the variables' current values
+- can describe printing values with print() and formatted strings (f-strings)
 - solid and accurate
 - may lack depth on edge cases or best practices
 
@@ -53,10 +55,10 @@ A variable is like a box. You can do math with them like x + y.
 
 - complete and functional
 - correct variables and data types
-- correct type casting (int(), float()) where needed
+- uses the values the task gives directly in the code
 - correct use of print() and formatted strings (f-strings)
 - follows the prompt
-- may lack clear names, comments, or invalid-input handling
+- may lack clear names or comments
 
 ### AI Use Answer
 
@@ -87,16 +89,16 @@ A variable stores a value so you can reuse it. For example, price = 10 and tax =
 - connects to problem decomposition
 - may discuss edge cases or best practices
 - meaningful variable names
-- when to use str() for output
+- how data types affect an expression's result (e.g. / always produces a float)
 
 ### Code Answer
 
 - complete, functional, clear
 - meaningful variable names
-- correct types and type casting
+- correct types for each value — int, float, str (text), or bool (True/False)
 - clean formatted output
 - structure reflects input-process-output
-- may handle invalid input or include brief comments
+- may include brief comments
 
 ### AI Use Answer
 
@@ -109,7 +111,7 @@ A variable stores a value so you can reuse it. For example, price = 10 and tax =
 
 **Rating:** Exceptional
 
-A variable is a named place in memory that holds a value (e.g. an int, float, or str). You use variables in expressions to compute new values. For example, length = 5 and width = 3; then area = length * width is an expression that uses both variables. The expression is evaluated using the current values, so variables let you reuse and combine data.
+A variable is a named place in memory that holds a value (e.g. an int, float, str, or bool). You use variables in expressions to compute new values. For example, length = 5 and width = 3; then area = length * width is an expression that uses both variables. The expression is evaluated using the current values, so variables let you reuse and combine data.
 
 **Strengths:**
 

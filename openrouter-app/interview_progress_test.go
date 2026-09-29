@@ -57,7 +57,7 @@ func TestRewindMissingSyncHandoffOnOpeningTurn(t *testing.T) {
 	}
 }
 
-func TestContentViolationUsesRewindEvenOnFollowUp(t *testing.T) {
+func TestContentViolationOnFollowUpMovesForward(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase:            phaseAssessmentInProgress,
 		ActiveMode:                   modeCode,
@@ -65,8 +65,45 @@ func TestContentViolationUsesRewindEvenOnFollowUp(t *testing.T) {
 		ModeUserAnsweredSinceOpening: true,
 	}
 	handoff := buildUnifiedCorrectiveHandoff(state, assessmentViolations{Content: true, MissingSync: true})
+	if strings.Contains(handoff, "Re-present the SAME concrete scenario") {
+		t.Fatalf("content violation after the student answered must not rewind, got %q", handoff)
+	}
+	if !strings.Contains(handoff, "Do NOT re-present the opening scenario") {
+		t.Fatalf("expected forward guidance, got %q", handoff)
+	}
+}
+
+func TestContentViolationOnOpeningRewinds(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase: phaseAssessmentInProgress,
+		ActiveMode:        modeConceptual,
+		ModeInterviewStep: interviewStepOpening,
+	}
+	handoff := buildUnifiedCorrectiveHandoff(state, assessmentViolations{Content: true, SevereContent: true})
 	if !strings.Contains(handoff, "Re-present the SAME concrete scenario") {
-		t.Fatalf("content violation should rewind even on follow-up, got %q", handoff)
+		t.Fatalf("content violation on the opening should rewind, got %q", handoff)
+	}
+}
+
+func TestCorrectiveHandoffsSayTheyAreNotFromTheStudent(t *testing.T) {
+	opening := &AgentSessionState{ConversationPhase: phaseAssessmentInProgress, ActiveMode: modeConceptual}
+	followUp := &AgentSessionState{
+		ConversationPhase:            phaseAssessmentInProgress,
+		ActiveMode:                   modeConceptual,
+		ModeOpeningServed:            true,
+		ModeUserAnsweredSinceOpening: true,
+	}
+	cases := map[string]string{
+		"rewind":             buildUnifiedCorrectiveHandoff(opening, assessmentViolations{MissingSync: true}),
+		"forward content":    buildUnifiedCorrectiveHandoff(followUp, assessmentViolations{Content: true, SevereContent: true}),
+		"forward sync":       buildUnifiedCorrectiveHandoff(followUp, assessmentViolations{MissingSync: true}),
+		"closing sync":       buildUnifiedCorrectiveHandoff(followUp, assessmentViolations{MissingSync: true, MissingSyncClosing: true}),
+		"complete no bucket": buildUnifiedCorrectiveHandoff(followUp, assessmentViolations{CompleteWithoutBucket: true}),
+	}
+	for name, handoff := range cases {
+		if !strings.Contains(handoff, correctiveNoteRule) {
+			t.Errorf("%s handoff missing server-note rule: %q", name, handoff)
+		}
 	}
 }
 
@@ -120,7 +157,7 @@ func TestResetModeInterviewProgressOnModeTransition(t *testing.T) {
 	state := &AgentSessionState{
 		ConversationPhase:            phaseAssessmentInProgress,
 		ActiveMode:                   modeConceptual,
-		ConceptualAssessmentPhase:      assessmentPhaseComplete,
+		ConceptualAssessmentPhase:    assessmentPhaseComplete,
 		ConceptualAssessmentBucket:   bucketCompetent,
 		ModeInterviewStep:            interviewStepInterviewing,
 		ModeOpeningServed:            true,
@@ -179,5 +216,290 @@ func TestPostProcessDoesNotUpdateProgressBeforeCorrectiveRetry(t *testing.T) {
 	}
 	if state.ModeOpeningServed {
 		t.Fatal("should not mark opening served before corrective retry succeeds")
+	}
+}
+
+const alexInputQuestion = "What would you identify as the input before any processing begins?"
+
+// Replays a reported session: after the student answered Alex's input question, Julia
+// re-introduced herself, re-presented the scenario, and asked for the input again.
+func TestJuliaReaskingAnsweredInputQuestionTriggersForwardRetry(t *testing.T) {
+	state := week1FollowUpState()
+	state.ModeQuestionsAsked = []string{alexInputQuestion}
+	state.LastUserMessageRaw = "the three buffer solutions, three beakers, the ph meter to be calibrated."
+	assistant := strings.Join([]string{
+		"Hello, I'm Julia. Welcome to ChemCore Diagnostics. I work in the analytical chemistry lab here.",
+		"",
+		"Here's the scenario: we need to calibrate the pH meter using the three buffer solutions and the three beakers.",
+		"",
+		"Before any processing starts, what would you identify as the input for this calibration task?",
+		"",
+		"```_ipyintervu",
+		`{"conceptualAssessmentPhase": "in_progress"}`,
+		"```",
+	}, "\n")
+
+	if v := detectAssessmentViolations(state, assistant); !v.RepeatedQuestion {
+		t.Fatalf("expected repeated question violation, got %+v", v)
+	}
+	followUp := postProcessAssistantTurn(state, assistant, false, nil)
+	if followUp.Kind != "corrective_retry" {
+		t.Fatalf("expected corrective_retry, got %+v", followUp)
+	}
+	if strings.Contains(followUp.Handoff, "Re-present the SAME concrete scenario") {
+		t.Fatalf("retry must move forward, got %q", followUp.Handoff)
+	}
+	if !strings.Contains(followUp.Handoff, alexInputQuestion) {
+		t.Fatalf("retry should name the answered question, got %q", followUp.Handoff)
+	}
+}
+
+func TestIsRepeatedQuestion(t *testing.T) {
+	cases := []struct {
+		next string
+		want bool
+	}{
+		{"Before any processing starts, what would you identify as the input for this calibration task?", true},
+		{"What would you identify as the input?", false},
+		{"What would you identify as the output?", false},
+		{"What steps would you include in the process between the inputs and the final report?", false},
+		{"Which of those buffers would you measure first, and why?", false},
+	}
+	for _, c := range cases {
+		if got := isRepeatedQuestion(alexInputQuestion, c.next); got != c.want {
+			t.Errorf("isRepeatedQuestion(%q) = %v, want %v", c.next, got, c.want)
+		}
+	}
+}
+
+func TestNextDecompositionQuestionIsNotARepeat(t *testing.T) {
+	state := week1FollowUpState()
+	state.ModeQuestionsAsked = []string{alexInputQuestion}
+	state.LastUserMessageRaw = "the three buffer solutions"
+	assistant := "Julia here, QA lead at ChemCore. What steps would you include in the process?\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"in_progress\"}\n```"
+
+	if v := detectAssessmentViolations(state, assistant); v.RepeatedQuestion {
+		t.Fatalf("asking about the process is not a repeat, got %+v", v)
+	}
+}
+
+func TestRewordingAfterClarificationRequestIsAllowed(t *testing.T) {
+	state := week1FollowUpState()
+	state.ModeQuestionsAsked = []string{alexInputQuestion}
+	state.LastUserMessageRaw = "what do you mean by input?"
+	assistant := "Before any processing starts, what would you identify as the input for this calibration task?"
+
+	if v := detectAssessmentViolations(state, assistant); v.RepeatedQuestion {
+		t.Fatalf("rewording after a clarification request is allowed, got %+v", v)
+	}
+}
+
+func TestDeliveredReplyRecordsLastQuestion(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase: phaseAssessmentInProgress,
+		ActiveMode:        modeConceptual,
+		CurrentWeekNumber: 1,
+	}
+	assistant := "I'm Alex, a process analyst at ChemCore Diagnostics. Here's the scenario: calibrate the pH meter.\n\n" + alexInputQuestion + "\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"in_progress\"}\n```"
+
+	updateInterviewProgressAfterAssistant(state, assistant)
+	if len(state.ModeQuestionsAsked) != 1 || state.ModeQuestionsAsked[0] != alexInputQuestion {
+		t.Fatalf("expected question recorded, got %q", state.ModeQuestionsAsked)
+	}
+	resetModeInterviewProgress(state)
+	if state.ModeQuestionsAsked != nil {
+		t.Fatal("mode reset should clear the last question")
+	}
+}
+
+func TestSystemPromptStatesAnsweredQuestionOnFollowUp(t *testing.T) {
+	state := week1FollowUpState()
+	state.ModeQuestionsAsked = []string{alexInputQuestion}
+
+	prompt, _, _, err := buildSystemPrompt(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "THIS TURN:") || !strings.Contains(prompt, alexInputQuestion) {
+		t.Fatal("follow-up prompt should state the answered question")
+	}
+
+	opening := &AgentSessionState{ConversationPhase: phaseAssessmentInProgress, ActiveMode: modeConceptual, CurrentWeekNumber: 1}
+	prompt, _, _, err = buildSystemPrompt(opening)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prompt, "THIS TURN:") {
+		t.Fatal("opening turn should not carry the follow-up directive")
+	}
+}
+
+func withSync(text string) string {
+	return text + "\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"in_progress\"}\n```"
+}
+
+// Replays a reported Week 1 session end to end through the state machine. The model asked
+// for the input three times and, after input, process, and output were all answered, kept
+// interviewing instead of closing with a bucket.
+func TestWeek1ReplayClosesAfterInputProcessOutput(t *testing.T) {
+	state := newAgentSessionState()
+	state.ConversationPhase = phaseAwaitingKeyConcept
+	state.StudentMajor = "mathematics"
+	applyPreChatUserUpdate(state, "week 1")
+	if state.ActiveMode != modeConceptual || !state.isProblemDecompositionWeek() {
+		t.Fatalf("expected week 1 conceptual, got mode=%q week=%d", state.ActiveMode, state.CurrentWeekNumber)
+	}
+
+	deliver := func(assistant, student string) {
+		t.Helper()
+		if f := postProcessAssistantTurn(state, withSync(assistant), false, nil); f.Kind != "" || f.ContinueTurn {
+			t.Fatalf("expected %q to be delivered, got %+v", assistant, f)
+		}
+		applyPreChatUserUpdate(state, student)
+	}
+
+	deliver("Great choice. I'm Alex, a quantitative analyst at Stratum Analytics. Here's the scenario: run a population growth simulation.\n\nWhat would you identify as the input in this scenario — the information or materials needed before any processing begins?",
+		"population size, growth rate, time period, a computer, and the modeling software.")
+	deliver("Got it. Now, what would you identify as the process — the steps you'd follow to go from those inputs to a result?",
+		"I would launch the software, enter a set of inputs, and record the result, repeating for each scenario.")
+	deliver("Got it. And once a result is recorded for a set of inputs, how would you know the result was correct?",
+		"I would do a hand validation by calculating it myself.")
+
+	// Turn 4 in the report asked for the input again.
+	reask := withSync("Got it. Now, thinking back to the original task itself — what would you identify as the input, before any processing begins?")
+	if f := postProcessAssistantTurn(state, reask, false, nil); f.Kind != "corrective_retry" || !strings.Contains(f.Handoff, "do not ask any of them again") {
+		t.Fatalf("expected forward retry for re-asked input question, got %+v", f)
+	}
+	deliver("Got it. What would you consider the output of the task — what would you have at the end that shows the work is done?",
+		"A single report consisting of each scenario paired with its result.")
+
+	if !conceptualClosingDue(state) {
+		t.Fatalf("closing should be due after input, process, and output; answered=%v", decompositionPartsAnswered(state))
+	}
+	prompt, _, _, err := buildSystemPrompt(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "THIS TURN MUST CLOSE THE INTERVIEW") {
+		t.Fatal("prompt should require the closing reply")
+	}
+
+	// The reported reply asked for the input yet again instead of closing.
+	loop := withSync("Got it. Thanks, that gives me the output clearly. What would you identify as the input to this task — before any processing begins, what do you have on hand?")
+	f := postProcessAssistantTurn(state, loop, false, nil)
+	if f.Kind != "corrective_retry" || !strings.Contains(f.Handoff, "the interview is finished") {
+		t.Fatalf("expected closing retry, got %+v", f)
+	}
+
+	closing := "Thanks, that completes our discussion today.\n\n```_ipyintervu\n{\"conceptualAssessmentPhase\": \"complete\", \"conceptualAssessmentBucket\": \"Competent\"}\n```"
+	f = postProcessAssistantTurn(state, closing, true, nil)
+	if f.Kind != "server_results" || !strings.Contains(f.DirectAssistant, "Overall Rating: Competent") {
+		t.Fatalf("expected server results after closing, got %+v", f)
+	}
+}
+
+func TestDecompositionPart(t *testing.T) {
+	cases := map[string]string{
+		"What would you identify as the input in this scenario?":                            "input",
+		"What would you identify as the process — the steps from those inputs to a result?": "process",
+		"What steps would you follow?":                                                      "process",
+		"What would you consider the output of the task?":                                   "output",
+		"How would you know the result was correct?":                                        "",
+	}
+	for q, want := range cases {
+		if got := decompositionPart(q); got != want {
+			t.Errorf("decompositionPart(%q) = %q, want %q", q, got, want)
+		}
+	}
+}
+
+func TestClosingNotDueBeforeAllPartsOrCap(t *testing.T) {
+	state := week1FollowUpState()
+	state.ModeQuestionsAsked = []string{alexInputQuestion, "What steps belong in the process?"}
+	if conceptualClosingDue(state) {
+		t.Fatal("closing should not be due before the output is asked")
+	}
+	state.CurrentWeekNumber = 3
+	state.SelectedKeyConcept = "Week 3 - Input & Type Casting"
+	state.ModeQuestionsAsked = []string{"a?", "b?", "c?", "d?"}
+	if conceptualClosingDue(state) {
+		t.Fatal("closing should not be due before the question cap")
+	}
+	state.ModeQuestionsAsked = append(state.ModeQuestionsAsked, "e?")
+	if !conceptualClosingDue(state) {
+		t.Fatal("closing should be due at the question cap")
+	}
+}
+
+func withCodeSync(text string) string {
+	return text + "\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"in_progress\"}\n```"
+}
+
+// Replays a reported Week 2 code phase: after the paste and explain-code and AI-use
+// answers, the model kept interviewing and then asked for the code a second time.
+func TestCodeReplayClosesAfterExplainAndAIUse(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase:  phaseAssessmentInProgress,
+		ActiveMode:         modeCode,
+		CurrentWeekNumber:  2,
+		SelectedKeyConcept: "Week 2 - Variables",
+	}
+	deliver := func(assistant, student string) {
+		t.Helper()
+		if f := postProcessAssistantTurn(state, withCodeSync(assistant), false, nil); f.Kind != "" || f.ContinueTurn {
+			t.Fatalf("expected %q to be delivered, got %+v", assistant, f)
+		}
+		applyPreChatUserUpdate(state, student)
+	}
+	code := "price = 12.50\nshipping = 2.00\nquantity = 150\n\ncost_per_unit = price + shipping\ntotal_value = cost_per_unit * quantity\n\nprint(f\"Cost per unit: ${cost_per_unit:.2f}\")"
+
+	deliver("I'm Morgan, a software developer here at CodeVault Systems. Each mouse costs $12.50, shipping is $2.00 per unit, and there are 150 units. Can you break this problem down into the specific steps your program would follow?",
+		"add the product cost plus the shipping cost then multiply this sum by the number of units")
+	deliver("Perfect start. Now please paste your Python code for the task.", code)
+	if state.ModeInterviewStep != interviewStepCodeSubmitted {
+		t.Fatalf("step = %q, want %q", state.ModeInterviewStep, interviewStepCodeSubmitted)
+	}
+	if codeClosingDue(state) {
+		t.Fatal("closing should not be due before any question about the code")
+	}
+	deliver("Thanks for pasting your code. What value does cost_per_unit hold after cost_per_unit = price + shipping executes?",
+		"the cost_per_unit is a float that is the total for an individual mouse.")
+
+	// Re-requesting code after the paste is a repeat, even with a new wording.
+	reask := withCodeSync("Got it. Please paste the Python code you wrote for this task.")
+	if f := postProcessAssistantTurn(state, reask, false, nil); f.Kind != "corrective_retry" {
+		t.Fatalf("expected retry for re-requested code, got %+v", f)
+	}
+
+	deliver("When you were putting together that script, did you use any AI tools, and how did you verify what it produced?",
+		"I did. I read through it and ran it before giving it to you")
+
+	if !codeClosingDue(state) {
+		t.Fatalf("closing should be due after explain-code and AI-use; asked=%q", postCodeQuestions(state))
+	}
+	prompt, _, _, err := buildSystemPrompt(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "THIS TURN MUST CLOSE THE INTERVIEW") || !strings.Contains(prompt, `"codeAssessmentPhase": "complete"`) {
+		t.Fatal("prompt should require the code closing reply")
+	}
+
+	loop := withCodeSync("Got it. Since you have a working script, please paste the Python code you wrote for this task.")
+	if f := postProcessAssistantTurn(state, loop, false, nil); f.Kind != "corrective_retry" || !strings.Contains(f.Handoff, "the interview is finished") {
+		t.Fatalf("expected closing retry, got %+v", f)
+	}
+}
+
+func TestCodeRequestPattern(t *testing.T) {
+	for text, want := range map[string]bool{
+		"please paste the python code you wrote for this task.": true,
+		"can you share your script?":                            true,
+		"thanks for pasting your code.":                         false,
+		"walk me through the code you pasted.":                  false,
+	} {
+		if got := looksLikeCodeRequest(text); got != want {
+			t.Errorf("looksLikeCodeRequest(%q) = %v, want %v", text, got, want)
+		}
 	}
 }

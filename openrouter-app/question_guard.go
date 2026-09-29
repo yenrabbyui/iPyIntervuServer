@@ -339,3 +339,111 @@ func buildDisplayAssistantRaw(handoffParts []string, lastAssistant string) strin
 	}
 	return strings.Join(handoffParts, "\n\n") + "\n\n" + lastAssistant
 }
+
+var (
+	evaluativePraisePattern     = regexp.MustCompile(`(?i)\b(?:that's|that is) (?:exactly |absolutely )?(?:right|correct)\b|\bexactly right\b|\byou're (?:absolutely |exactly )?right\b|\byou are (?:absolutely |exactly )?right\b|\bwell done\b|\bgreat (?:job|answer|work)\b|\bnice work\b|\bthat's a (?:clear|solid|good|great|strong|nice)\b|\bis a (?:clear|solid|good|great|strong|nice) (?:approach|answer|start|idea|plan)\b|(?:^|\n)\s*(?:exactly|correct|confirmed)\b|\blines up with\b`)
+	answerExplanationPattern    = regexp.MustCompile(`(?i)\blet's (?:step|walk) through\b|\bfor example\b|\bthe (?:correct|right|expected) answer\b`)
+	paragraphBreakPattern       = regexp.MustCompile(`\n\s*\n`)
+	acknowledgmentOpenerPattern = regexp.MustCompile(`(?i)^(?:got it|thanks|thank you|understood|okay|ok)\b`)
+)
+
+// looksLikeEvaluationOrStagedTurn reports replies that grade or explain the student's answer,
+// or that act out another exchange: an acknowledgment opening a later paragraph means the
+// model wrote a reply to an answer the student never gave. None of these depend on a
+// question mark, so they catch explanations placed before the reply's only question.
+func looksLikeEvaluationOrStagedTurn(visible string) bool {
+	visible = strings.TrimSpace(stripCodeFences(stripIPyIntervuTail(visible)))
+	if visible == "" {
+		return false
+	}
+	if evaluativePraisePattern.MatchString(visible) || answerExplanationPattern.MatchString(visible) {
+		return true
+	}
+	for i, paragraph := range paragraphBreakPattern.Split(visible, -1) {
+		if i > 0 && acknowledgmentOpenerPattern.MatchString(strings.TrimSpace(paragraph)) {
+			return true
+		}
+	}
+	return false
+}
+
+var interviewAskPattern = regexp.MustCompile(`(?i)\?|\bplease (?:paste|share|send|provide|submit)\b|\bwalk me through\b|\btell me\b|\bpoint me to\b|\b(?:explain|describe|outline|share|show me)\b[^.!\n]{0,40}\byour\b|\bbreak\b[^.!\n]{0,40}\binto\b`)
+
+const personaNameAlt = `alex|julia|taylor|morgan|riley|casey|samantha|david`
+
+var (
+	replySentencePattern = regexp.MustCompile(`[^.!?\n]+[.!?]*`)
+	// "Alex, would you like to begin?" / "Would you like to begin, Julia?"
+	personaAddressedPattern    = regexp.MustCompile(`(?i)^\s*(?:so|and|now|ok(?:ay)?)?[,\s]*(?:` + personaNameAlt + `)\s*[,:—–-]|[,—–-]\s*(?:` + personaNameAlt + `)\s*[?.!]*\s*$`)
+	templatePlaceholderPattern = regexp.MustCompile(`\[[A-Za-z][A-Za-z ]{1,30}\]`)
+)
+
+// asksStudentSomething reports whether a reply contains a question or a direct request for
+// the student. Sentences addressed to a persona ("Alex, would you like to begin?") do not
+// count: the student cannot answer them.
+var (
+	// "Hey Taylor!" / "Thanks, Alex." — greeting an interviewer as if the student were one.
+	personaGreetingPattern = regexp.MustCompile(`(?i)^\s*(?:hey|hi|hello|thanks|thank you)[,\s]+(?:` + personaNameAlt + `)\s*[,.!:—–-]`)
+	// Grading notes: the model reasoning about the student instead of talking to them.
+	reasoningLeakPattern = regexp.MustCompile(`(?i)\bthe student(?:'s)?\b|\brubric\b|\bsync block\b|\b(?:conceptual|code|bug[- ]hunting) portion\b`)
+)
+
+// addressesPersona reports a sentence that greets or questions an interviewer instead of
+// the student.
+func addressesPersona(visible string) bool {
+	for _, sentence := range replySentencePattern.FindAllString(stripCodeFences(stripIPyIntervuTail(visible)), -1) {
+		if personaGreetingPattern.MatchString(sentence) || (strings.Contains(sentence, "?") && personaAddressedPattern.MatchString(sentence)) {
+			return true
+		}
+	}
+	return false
+}
+
+// leaksReasoning reports grading notes or internal vocabulary in a reply meant for the student.
+func leaksReasoning(visible string) bool {
+	return reasoningLeakPattern.MatchString(stripCodeFences(stripIPyIntervuTail(visible)))
+}
+
+func asksStudentSomething(visible string) bool {
+	for _, sentence := range replySentencePattern.FindAllString(stripCodeFences(stripIPyIntervuTail(visible)), -1) {
+		if !personaAddressedPattern.MatchString(sentence) && interviewAskPattern.MatchString(sentence) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasUnfilledPlaceholder reports template placeholders such as "[companyName]" left in the
+// prose of a reply. Markdown links ("[text](url)") and code are not placeholders.
+func hasUnfilledPlaceholder(visible string) bool {
+	prose := inlineCodePattern.ReplaceAllString(stripCodeFences(stripIPyIntervuTail(visible)), " ")
+	for _, loc := range templatePlaceholderPattern.FindAllStringIndex(prose, -1) {
+		if loc[1] < len(prose) && prose[loc[1]] == '(' {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+var (
+	// Classroom framing: course structure and what the student has been taught.
+	classroomFramingPattern = regexp.MustCompile(`(?i)\b(?:in class|this class|our class|the course|this course|cse ?\d+|homework|syllabus|lectures?|module \d+|weeks? \d+|you(?:'ve| have) (?:learned|studied|been taught|covered)|we(?:'ve| have) (?:learned|covered)|what you know from)\b`)
+	// Instructor roles; allowed for education majors (see Persona identity in protocols).
+	instructorRolePattern = regexp.MustCompile(`(?i)\b(?:instructors?|teachers?|professors?|tutors?|teaching assistants?)\b`)
+	educationMajorPattern = regexp.MustCompile(`(?i)educat|teach`)
+)
+
+func isEducationMajor(major string) bool {
+	return educationMajorPattern.MatchString(major)
+}
+
+// speaksAsInstructor reports a reply framed as a class rather than a job interview: course
+// weeks, homework, what the student has learned, or an instructor role.
+func speaksAsInstructor(state *AgentSessionState, visible string) bool {
+	prose := stripCodeFences(stripIPyIntervuTail(visible))
+	if classroomFramingPattern.MatchString(prose) {
+		return true
+	}
+	return !isEducationMajor(state.StudentMajor) && instructorRolePattern.MatchString(prose)
+}

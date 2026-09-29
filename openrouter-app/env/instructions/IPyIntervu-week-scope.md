@@ -8,7 +8,7 @@ The server state JSON includes `assessmentWeekScope` with `allowedWeekNumbers`, 
 - **Forbidden:** any concept whose **first introduction** is in a week after `primaryWeekNumber`.
 - **Mandatory:** before presenting a conceptual question, code task, bug snippet, or follow-up, verify it does not require forbidden concepts. **Revise the draft** if it does.
 
-Prior-week concepts may appear as supporting ingredients (e.g. Week 7 code may use `if`/`elif`/`else` from Week 5 and `for` from Week 6). Later-week concepts must not appear—not even as optional extras or “nice to have” features.
+Prior-week concepts may appear as supporting ingredients (e.g. Week 7 code may use `if`/`elif`/`else` from Week 5 and `for` from Week 6). Later-week concepts must not appear—not even as optional extras or “nice to have” features, and not even to tell the student **not** to use them (e.g. never "without using an if statement" in Week 2). The server checks every reply for later-week concepts and retries replies that use or mention them.
 
 ## Dictionary prohibition (all weeks)
 

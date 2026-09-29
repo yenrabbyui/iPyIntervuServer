@@ -1,22 +1,23 @@
 # Week 6 Assessment Rubric
 
+Week 6 covers `for` loops: repeating a body once per value, the loop variable, `range()`, iterating over the characters of a string, and accumulators (running totals and counts). Everything from weeks 1–5 (variables, `input()` and type casting, string methods, `if`/`elif`/`else`, comparisons, and boolean logic) may be used inside or around a loop. `while` loops and menus (week 7), lists (week 8), and files (week 9) are not expected.
+
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant errors about conditionals or loops
-- confuses if/elif/else or when each applies
-- cannot articulate when to use for vs while
-- does not understand boolean expressions (and, or, not)
+- significant errors about how a for loop repeats
+- cannot say what the loop variable holds on each pass
+- confuses the loop body with the code after the loop (indentation)
+- misunderstands range() (e.g. thinks range(5) includes 5 or starts at 1)
 - fundamental misunderstanding of control flow
 
 ### Code Answer
 
 - non-functional or major logic errors
-- wrong or missing if/elif/else branches
-- infinite loop or loop that never runs
-- wrong comparison operators (e.g. = instead of ==)
-- no clear menu or control structure
+- loop runs the wrong number of times (off-by-one range() bounds)
+- accumulator not set before the loop, or reset inside it
+- work that should repeat is placed after the loop, or work that should happen once is inside it
 - completely misses the prompt
 
 ### AI Use Answer
@@ -29,37 +30,36 @@
 
 **Rating:** Not Yet Ready
 
-You use for when you have a list and while when you don't. They're kind of the same.
+A for loop just runs the code again. range(5) goes from 1 to 5.
 
 **Issues:**
 
-- vague and partially wrong
-- for is for iterating over a known sequence (or range); while is for repeating until a condition is false
-- does not give clear criteria (e.g. known number of items vs 'until user quits')
-- saying they're the same shows misunderstanding
+- vague — does not say the body runs once per value
+- range(5) produces 0, 1, 2, 3, 4 (it starts at 0 and stops before 5)
+- does not mention the loop variable or what changes each pass
 
 ## Competent
 
 ### Conceptual Answer
 
 - factually correct
-- can describe if/elif/else and when each applies
-- can describe boolean expressions and comparison operators
-- can explain for vs while with reasonable criteria
-- can describe menu loop (repeat until quit)
-- may lack depth on edge cases or combining structures
+- can describe how a for loop runs its body once per value
+- can describe what range(stop), range(start, stop), and range(start, stop, step) produce
+- can describe looping over the characters of a string
+- can describe an accumulator (running total or count) built up inside a loop
+- may lack depth on edge cases (e.g. a range that produces no values)
 
 ### Code Answer
 
 - complete and functional
-- correct if/elif/else and loop logic
-- menu repeats until user quits
-- correct comparison operators (==, !=, etc.)
-- may have long if/elif chains or minimal error handling
+- correct loop header and range() bounds
+- accumulator set before the loop and updated inside it
+- uses earlier-week tools (input(), string methods, if/elif/else) where the task needs them
+- may have minor inefficiencies or minimal comments
 
 ### AI Use Answer
 
-- using AI for conditionals/loops, debugging, or explanation
+- using AI for loops, debugging, or explanation
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
@@ -67,13 +67,13 @@ You use for when you have a list and while when you don't. They're kind of the s
 
 **Rating:** Competent
 
-Use a for loop when you know how many times to iterate—like going through each item in a list or a range of numbers. Use a while loop when you're repeating until a condition becomes false, like when the user types 'quit' or until a value meets some condition. So for loops are for fixed sequences, while loops are for 'keep going until something changes.'
+A for loop runs its body once for each value it is given. With for i in range(3): the body runs three times, and i is 0, then 1, then 2. To add up a fixed number of prices, I set total = 0 before the loop and add each price to total inside it.
 
 **Strengths:**
 
-- correct distinction (known iteration vs until condition)
-- gives concrete examples (list/range vs user quits)
-- accurate and practical
+- correct description of repetition and the loop variable
+- correct range() values
+- concrete accumulator example with setup before the loop
 
 ## Exceptional
 
@@ -81,21 +81,21 @@ Use a for loop when you know how many times to iterate—like going through each
 
 - correct, clear, comprehensive
 - concrete examples
-- connects to problem decomposition (decision points, repetition, exit condition)
-- may discuss combining conditionals and loops
-- may discuss handling invalid input
+- connects to problem decomposition (what repeats, what changes each pass, what is accumulated)
+- may discuss edge cases (a count of zero, off-by-one bounds)
+- may discuss combining a loop with week 5 conditionals (e.g. counting only the values that meet a condition)
 
 ### Code Answer
 
 - complete, functional, clear
-- well-structured conditionals and loops
-- clear menu with explicit exit condition
-- sensible handling of invalid input
-- readable variable names and structure
+- well-chosen range() bounds or iteration target
+- meaningful loop variable names
+- sensible handling of edge cases such as a count of zero
+- readable structure
 
 ### AI Use Answer
 
-- AI to critique control flow, suggest conditions, or generate tests
+- AI to critique loop logic, check range() bounds, or generate tests
 - strategic use to deepen understanding
 - improve structure and edge-case handling
 
@@ -103,14 +103,14 @@ Use a for loop when you know how many times to iterate—like going through each
 
 **Rating:** Exceptional
 
-Use a for loop when you're iterating over a known sequence—a list, a range(n), or anything you can step through one item at a time with a fixed number of iterations. Use a while loop when the number of iterations isn't known in advance and depends on a condition (e.g. 'repeat until the user enters Q' or 'repeat until score reaches 100'). In problem decomposition: if you can say 'do this for each X,' use for; if you say 'keep doing this until Y happens,' use while. Be careful with while—you need a condition that eventually becomes false or you get an infinite loop.
+A for loop repeats its body once per value — each number from range() or each character of a string. range stops before its end value, so to number items 1 through count I use range(1, count + 1). For a total I set total = 0 before the loop, add inside it, and print after it, so the print happens once. Inside the loop I can use an if from week 5, for example to count only the scores that are 70 or higher. If count is 0 the loop body never runs and the total stays 0.
 
 **Strengths:**
 
-- clear criteria (known sequence vs condition-based)
-- concrete examples (list, range vs user quits, score)
-- connects to problem decomposition
-- cautions about infinite loops
+- clear model of repetition and the loop variable
+- handles off-by-one with range(1, count + 1)
+- separates setup, repeated work, and output
+- combines the loop with a conditional and considers the zero case
 
 ## Code Answer Integrated Dimensions
 

@@ -93,11 +93,28 @@ func TestAssessmentSyncRetryOnMissingIPyBlock(t *testing.T) {
 		ActiveMode:        modeConceptual,
 		CurrentWeekNumber: 8,
 	}
-	assistant := "What would you do if the user enters an invalid menu choice?"
+	assistant := "Thanks for walking through that menu flow."
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
 	if followUp.Kind != "corrective_retry" || !followUp.ContinueTurn {
 		t.Fatalf("expected corrective_retry follow-up, got %+v", followUp)
+	}
+}
+
+func TestQuestionWithoutIPyBlockMarksOpeningServed(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase: phaseAssessmentInProgress,
+		ActiveMode:        modeConceptual,
+		CurrentWeekNumber: 8,
+	}
+	assistant := "What would you do if the user enters an invalid menu choice?"
+
+	followUp := postProcessAssistantTurn(state, assistant, false, nil)
+	if followUp.Kind != "" || followUp.ContinueTurn {
+		t.Fatalf("expected reply to be delivered, got %+v", followUp)
+	}
+	if !state.ModeOpeningServed {
+		t.Fatal("opening without a sync block should still count as served")
 	}
 }
 
@@ -171,11 +188,16 @@ func TestPostProcessResultsContinuationAfterBug(t *testing.T) {
 	}
 }
 
-func TestWrapUpProseWithInProgressDoesNotForceAssessmentSync(t *testing.T) {
+// A wrap-up that keeps the phase in_progress leaves the student nothing to answer and the
+// session stuck, so it is retried; the retry continues the interview (or closes it with a
+// bucket) rather than rewinding to the scenario.
+func TestWrapUpProseWithInProgressRetriesForward(t *testing.T) {
 	state := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeConceptual,
-		CurrentWeekNumber: 1,
+		ConversationPhase:            phaseAssessmentInProgress,
+		ActiveMode:                   modeConceptual,
+		CurrentWeekNumber:            1,
+		ModeOpeningServed:            true,
+		ModeUserAnsweredSinceOpening: true,
 	}
 	assistant := strings.Join([]string{
 		"I think that covers our decomposition well. Let me transition us toward the next part of the assessment.",
@@ -186,8 +208,8 @@ func TestWrapUpProseWithInProgressDoesNotForceAssessmentSync(t *testing.T) {
 	}, "\n")
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind == "corrective_retry" {
-		t.Fatalf("wrap-up prose with in_progress sync should not force corrective retry, got %+v", followUp)
+	if followUp.Kind != "corrective_retry" || strings.Contains(followUp.Handoff, "Re-present the SAME concrete scenario") {
+		t.Fatalf("question-less wrap-up should retry forward, got %+v", followUp)
 	}
 	if state.ConversationPhase != phaseAssessmentInProgress {
 		t.Fatalf("ConversationPhase = %q, want %q", state.ConversationPhase, phaseAssessmentInProgress)
@@ -431,16 +453,21 @@ func TestCodeModeIntroDoesNotForceAssessmentSync(t *testing.T) {
 	}
 }
 
-func TestCodeModePrematureBugTransitionDoesNotForceSync(t *testing.T) {
+// Announcing the bug portion while the code phase is still in_progress asks nothing and
+// cannot advance, so it is retried forward.
+func TestCodeModePrematureBugTransitionRetriesForward(t *testing.T) {
 	state := &AgentSessionState{
-		ConversationPhase: phaseAssessmentInProgress,
-		ActiveMode:        modeCode,
-		CurrentWeekNumber: 8,
+		ConversationPhase:            phaseAssessmentInProgress,
+		ActiveMode:                   modeCode,
+		CurrentWeekNumber:            8,
+		ModeOpeningServed:            true,
+		ModeUserAnsweredSinceOpening: true,
+		ModeInterviewStep:            interviewStepCodeSubmitted,
 	}
 	assistant := "Thanks for that. Let's move on to the debugging portion now.\n\n```_ipyintervu\n{\"codeAssessmentPhase\": \"in_progress\"}\n```"
 
 	followUp := postProcessAssistantTurn(state, assistant, false, nil)
-	if followUp.Kind == "corrective_retry" {
-		t.Fatalf("premature transition prose with valid sync should not force corrective retry, got %+v", followUp)
+	if followUp.Kind != "corrective_retry" || !strings.Contains(followUp.Handoff, "explain-code") {
+		t.Fatalf("premature transition should retry with code-phase guidance, got %+v", followUp)
 	}
 }

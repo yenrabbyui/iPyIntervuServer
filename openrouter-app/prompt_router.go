@@ -141,6 +141,12 @@ func buildSystemPrompt(state *AgentSessionState) (string, []string, string, erro
 	if syncLine := assessmentSyncPromptForState(state); syncLine != "" {
 		b.WriteString(syncLine)
 	}
+	if scope := weekScopeTurnDirective(state); scope != "" {
+		b.WriteString(scope)
+	}
+	if directive := followUpTurnDirective(state); directive != "" {
+		b.WriteString(directive)
+	}
 	b.WriteString("Assessment modes advance forward only (Conceptual → Code → Bug). Never return to a completed or earlier mode; follow activeMode in server state.\n")
 	b.WriteString("During assessment (coachingRequested false): never offer explanations, walkthroughs, hints that reveal answers, or coaching. Only Coaching mode may explain or teach.\n")
 	if state.ConversationPhase == phaseAssessmentInProgress {

@@ -6,15 +6,17 @@
 #   ./deploy/staging.sh logs     show recent staging logs
 #
 # Staging uses the production secrets (/etc/openrouter-app/env) and runs as the
-# openrouter user, but listens only on localhost. Reach it from your computer with:
-#   ssh -N -L 8081:127.0.0.1:8081 manager@<server>
-# then open http://localhost:8081
+# openrouter user, but listens only on localhost. Reach it by running this on your
+# own computer (not the server), then open http://localhost:8081 there:
+#   ssh -N -L 8081:127.0.0.1:8081 manager@aalang.org
+# Set STAGING_SSH_HOST to change the host shown in the printed instructions.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT="openrouter-staging"
 BIN="/usr/local/bin/openrouter-app-staging"
 PORT="${STAGING_PORT:-8081}"
+SSH_HOST="${STAGING_SSH_HOST:-aalang.org}"
 
 case "${1:-start}" in
   stop)
@@ -54,6 +56,13 @@ sudo systemd-run --unit="$UNIT" --uid=openrouter --gid=openrouter \
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
     echo "Staging is up on 127.0.0.1:$PORT (production on 8080 is untouched)."
+    echo
+    echo "To use it, run this in a terminal on your own computer (not this server)"
+    echo "and leave it open; it prints nothing while the tunnel is up:"
+    echo "  ssh -N -L $PORT:127.0.0.1:$PORT $(whoami)@$SSH_HOST"
+    echo "Then browse to http://localhost:$PORT"
+    echo
+    echo "Rerun ./deploy/staging.sh after each change. Logs: ./deploy/staging.sh logs"
     echo "Stop it with: ./deploy/staging.sh stop"
     exit 0
   fi

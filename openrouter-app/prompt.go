@@ -2,13 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 )
 
-const bootstrapStartMessage = "start"
 const defaultChatModel = "deepseek/deepseek-v4-flash"
 
 func resolveChatModel(model string) string {
@@ -27,10 +25,6 @@ type chatCompletionRequest struct {
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-
-type bootstrapRequest struct {
-	Model string `json:"model"`
 }
 
 type bootstrapResponse struct {
@@ -81,7 +75,8 @@ func openRouterHeaders(req *http.Request, apiKey string) {
 	}
 }
 
-func handleBootstrap(apiKey string, states *agentStateStore, turns *turnStore) http.HandlerFunc {
+// handleBootstrap returns the fixed server-authored welcome; no model call.
+func handleBootstrap(states *agentStateStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID, ok := sessionIDFromContext(r.Context())
 		if !ok {
@@ -89,98 +84,11 @@ func handleBootstrap(apiKey string, states *agentStateStore, turns *turnStore) h
 			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
-
-		var req bootstrapRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-		model := resolveChatModel(req.Model)
-
-		turnID := strings.TrimSpace(r.Header.Get(turnIDHeader))
-		if turnID == bootstrapTurnID {
-			if assistant, ok := turns.getBootstrapAssistant(sessionID); ok {
-				writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
-				return
-			}
-			if !turns.beginBootstrap(sessionID) {
-				assistant, err := turns.waitBootstrap(r.Context(), sessionID)
-				if err != nil {
-					http.Error(w, "upstream error", http.StatusBadGateway)
-					return
-				}
-				writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
-				return
-			}
-		}
-
 		state := states.getOrCreate(sessionID)
-		prompt, _, _, err := buildSystemPrompt(state)
-		if err != nil {
-			if turnID == bootstrapTurnID {
-				turns.cancelBootstrap(sessionID)
-			}
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		payload, err := json.Marshal(chatCompletionRequest{
-			Model: model,
-			Messages: []chatMessage{
-				{Role: "system", Content: prompt},
-				{Role: "user", Content: bootstrapStartMessage},
-			},
-		})
-		if err != nil {
-			if turnID == bootstrapTurnID {
-				turns.cancelBootstrap(sessionID)
-			}
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		body, statusCode, err := readOpenRouterBodyWithRetry(r.Context(), apiKey, payload, newOpenRouterLogCtx(sessionID, turnID, "bootstrap", 0))
-		if err != nil {
-			log.Printf("[openrouter] bootstrap_failed session=%s turn_id=%s err=%q", truncateSessionID(sessionID), truncateTurnID(turnID), err.Error())
-			if turnID == bootstrapTurnID {
-				turns.cancelBootstrap(sessionID)
-			}
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-
-		if statusCode != http.StatusOK {
-			if turnID == bootstrapTurnID {
-				turns.cancelBootstrap(sessionID)
-			}
-			http.Error(w, string(body), statusCode)
-			return
-		}
-
-		var completion openRouterCompletion
-		if err := json.Unmarshal(body, &completion); err != nil {
-			if turnID == bootstrapTurnID {
-				turns.cancelBootstrap(sessionID)
-			}
-			http.Error(w, "upstream error", http.StatusBadGateway)
-			return
-		}
-
-		assistant := ""
-		if len(completion.Choices) > 0 {
-			assistant = completion.Choices[0].Message.Content
-		}
-
-		assistant = stripIPyIntervuTail(assistant)
-		applyBootstrapState(state, assistant)
+		applyBootstrapState(state, setupWelcomeMessage)
 		states.set(sessionID, state)
 
-		if turnID == bootstrapTurnID {
-			turns.setBootstrapAssistant(sessionID, assistant)
-		}
-
-		writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: assistant})
+		writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: setupWelcomeMessage})
 	}
 }
 

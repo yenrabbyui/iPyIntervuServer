@@ -14,4 +14,4 @@
 ## Assessment scope
 
 - **Allowed:** Weeks 1–4 plus `if`, `elif`, `else`, multi-branch conditionals, comparisons, boolean logic.
-- **Forbidden (later weeks):** loops as the primary assessed skill (Week 6+), lists, file I/O.
+- **Forbidden (later weeks):** loops (Week 6+), `while` loops and menus (Week 7+), lists (Week 8+), file I/O (Week 9).

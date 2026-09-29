@@ -2,6 +2,8 @@
 
 Server state controls phase transitions. This module defines **allowed user-facing output** per setup phase.
 
+The server writes the welcome, the major acknowledgment, the weekly list, and the invalid-selection reply itself (`setup_messages.go`); the model is first called after a key concept is selected. The setup sections below document that output.
+
 ## AwaitingMajor
 
 - Explain IPyIntervu briefly and ask for the user's major.

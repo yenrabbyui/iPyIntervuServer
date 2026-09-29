@@ -6,9 +6,12 @@
 
 - loops
 - for loops
-- control structures
+- `range()` (with stop, start/stop, and step)
+- iterating over the characters of a string
+- accumulators (running totals and counts)
+- control structures (earlier-week conditionals inside a loop body)
 
 ## Assessment scope
 
 - **Allowed:** Weeks 1–5 plus `for`, `range()`, iterating sequences.
-- **Forbidden (later weeks):** `while` menus as the primary assessed skill (Week 7), lists, file I/O.
+- **Forbidden (later weeks):** `while` loops and menus (Week 7+), lists (Week 8+), file I/O (Week 9).

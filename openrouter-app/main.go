@@ -12,9 +12,11 @@ import (
 //go:embed static/*
 var staticFiles embed.FS
 
+// openRouterURL is a var so tests can point it at a fake upstream.
+var openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
+
 const (
-	openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
-	maxBodySize   = 1 << 20 // 1 MiB
+	maxBodySize = 1 << 20 // 1 MiB
 
 	openRouterResponseTimeout = 120 * time.Second
 )
@@ -61,7 +63,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /api/auth/challenge", auth.handleChallenge)
 	mux.HandleFunc("POST /api/auth/verify", auth.handleVerify)
-	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(apiKey, agentStates, turnStore)))
+	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(agentStates)))
 	mux.HandleFunc("GET /api/session/state", auth.requireSession(handleSessionState(agentStates)))
 	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey, agentStates, turnStore)))
 	mux.Handle("GET /{$}", http.FileServer(http.FS(static)))

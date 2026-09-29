@@ -37,6 +37,8 @@ Assessment Results — [selectedKeyConcept from server state]
 - Bug Assessment: [bugAssessmentBucket or N/A]
 
 Overall Rating: [finalRating]
+
+If you would like to see how to improve your assessment, type 'switch to coach mode'.
 ```
 
 ## CoachingMode

@@ -1,14 +1,14 @@
 # Week 5 Assessment Rubric
 
-Week 5 covers conditionals end to end: `if`, `elif`, `else`, comparison operators, and boolean logic. Each level below gives two worked examples — one single-branch `if`/`else`, one multi-branch `elif` chain — so both halves of the concept are graded against the same criteria.
+Week 5 covers conditionals end to end: `if`, `elif`, `else`, comparison operators, and boolean logic. Everything from weeks 1–4 (variables, `input()` and type casting, string methods) may be used alongside conditionals; loops (week 6), `while` loops and menus (week 7), lists (week 8), and files (week 9) are not expected. Each level below gives two worked examples — one single-branch `if`/`else`, one multi-branch `elif` chain — so both halves of the concept are graded against the same criteria.
 
 ## Not Yet Ready
 
 ### Conceptual Answer
 
-- significant errors about conditionals or loops
+- significant errors about conditionals, comparisons, or boolean logic
 - confuses if/elif/else or when each applies
-- cannot articulate when to use for vs while
+- cannot articulate when to use elif instead of a separate if
 - does not understand boolean expressions (and, or, not)
 - fundamental misunderstanding of control flow
 
@@ -16,9 +16,9 @@ Week 5 covers conditionals end to end: `if`, `elif`, `else`, comparison operator
 
 - non-functional or major logic errors
 - wrong or missing if/elif/else branches
-- infinite loop or loop that never runs
+- a branch that can never run, or overlapping conditions so more than one branch runs
 - wrong comparison operators (e.g. = instead of ==)
-- no clear menu or control structure
+- no clear decision structure (branches do not match the cases in the prompt)
 - completely misses the prompt
 
 ### AI Use Answer
@@ -68,21 +68,21 @@ if grade < 70: print('F')
 - factually correct
 - can describe if/elif/else and when each applies
 - can describe boolean expressions and comparison operators
-- can explain for vs while with reasonable criteria
-- can describe menu loop (repeat until quit)
-- may lack depth on edge cases or combining structures
+- can explain why the order of elif conditions matters
+- can describe combining conditions with and, or, and not
+- may lack depth on edge cases (boundary values such as exactly 18)
 
 ### Code Answer
 
 - complete and functional
-- correct if/elif/else and loop logic
-- menu repeats until user quits
+- correct if/elif/else logic
+- every case in the prompt reaches exactly one branch
 - correct comparison operators (==, !=, etc.)
 - may have long if/elif chains or minimal error handling
 
 ### AI Use Answer
 
-- using AI for conditionals/loops, debugging, or explanation
+- using AI for conditionals, debugging, or explanation
 - can articulate how they tested and integrated the suggestion
 - healthy, supplemental use of the tool
 
@@ -130,15 +130,15 @@ else:
 
 - correct, clear, comprehensive
 - concrete examples
-- connects to problem decomposition (decision points, repetition, exit condition)
-- may discuss combining conditionals and loops
+- connects to problem decomposition (decision points and the outcomes each one has)
+- may discuss nested conditionals or combining conditions with and/or/not
 - may discuss handling invalid input
 
 ### Code Answer
 
 - complete, functional, clear
-- well-structured conditionals and loops
-- clear menu with explicit exit condition
+- well-structured conditionals
+- a clear branch for every case in the prompt, including else for unexpected values
 - sensible handling of invalid input
 - readable variable names and structure
 

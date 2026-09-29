@@ -88,6 +88,7 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 			}
 		}
 
+		phaseBefore := state.ConversationPhase
 		if !skipPreChat {
 			applyPreChatUserUpdate(state, userMessage)
 		}
@@ -96,7 +97,7 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 		log.Printf("[openrouter] chat_start session=%s turn_id=%s active_mode=%s phase=%s message_index=%d",
 			truncateSessionID(sessionID), truncateTurnID(turnID), state.ActiveMode, state.ConversationPhase, state.MessageIndex)
 
-		runChatRequest(chatRunParams{
+		p := chatRunParams{
 			sessionID:   sessionID,
 			turnID:      turnID,
 			turnRec:     turnRec,
@@ -109,8 +110,36 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 			apiKey:      apiKey,
 			r:           r,
 			w:           w,
-		})
+		}
+		if reply, ok := serverSetupReply(phaseBefore, state); ok {
+			writeServerSetupReply(p, reply)
+			return
+		}
+		runChatRequest(p)
 	}
+}
+
+// writeServerSetupReply answers a setup-phase turn with fixed server text, shaped like an
+// OpenRouter completion so the browser handles it the same way.
+func writeServerSetupReply(p chatRunParams, content string) {
+	body, err := json.Marshal(map[string]any{
+		"choices": []map[string]any{{"message": map[string]string{"role": "assistant", "content": content}}},
+	})
+	if err != nil {
+		http.Error(p.w, "internal error", http.StatusInternalServerError)
+		if p.managesTurn() {
+			p.finalizeTurn(content, nil, http.StatusInternalServerError, true)
+		}
+		return
+	}
+	p.state.LastAssistantSummary = truncateSummary(content, 500)
+	p.states.set(p.sessionID, p.state)
+	writeChatResponse(p.w, body, http.StatusOK)
+	if p.managesTurn() {
+		p.finalizeTurn(content, body, http.StatusOK, false)
+	}
+	log.Printf("[openrouter] setup_reply session=%s turn_id=%s phase=%s",
+		truncateSessionID(p.sessionID), truncateTurnID(p.turnID), p.state.ConversationPhase)
 }
 
 type chatRunParams struct {
@@ -162,13 +191,41 @@ func (p *chatRunParams) displayRawAssistant(handoffParts []string, lastAssistant
 	return buildDisplayAssistantRaw(handoffParts, lastAssistant)
 }
 
+// serverInstruction carries a corrective retry or phase handoff into the next model call's
+// system prompt. It used to be appended to the conversation as a user message after the
+// rejected reply, and the model took both for the student's words: it thanked the student
+// for the note and assessed its own rejected draft as the student's answer.
+type serverInstruction struct {
+	kind          string // corrective_retry or mode
+	note          string
+	rejectedDraft string
+}
+
+func (s serverInstruction) systemBlock() string {
+	if s.note == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("SERVER INSTRUCTION FOR THIS REPLY — from the server, not the student. The student has sent nothing new: their latest message is the last user message in the conversation.")
+	if s.kind == "mode" {
+		b.WriteString(" That message was already handled by the previous part of the interview; do not respond to or evaluate it.")
+	}
+	b.WriteString("\n")
+	b.WriteString(s.note)
+	if s.rejectedDraft != "" {
+		b.WriteString("\nYour rejected draft, which the student never saw. It is not the student's words; do not thank anyone for it, assess it, or continue from it:\n<<<\n")
+		b.WriteString(s.rejectedDraft)
+		b.WriteString("\n>>>")
+	}
+	return b.String()
+}
+
 func (p *chatRunParams) tryScheduleFollowUpTurn(
 	followUp assistantTurnFollowUp,
 	assistant string,
-	turnMessages *[]chatMessage,
-	turnUserMessage *string,
+	instruction *serverInstruction,
 	modeContinuations *int,
-	correctiveRetryAttempted *bool,
+	correctiveRetries *int,
 ) bool {
 	if followUp.Kind == "server_results" || followUp.Kind == "fail_closed" {
 		return false
@@ -180,15 +237,14 @@ func (p *chatRunParams) tryScheduleFollowUpTurn(
 		*modeContinuations++
 	}
 	if followUp.Kind == "corrective_retry" {
-		*correctiveRetryAttempted = true
+		*correctiveRetries++
 		log.Printf("[openrouter] corrective_retry session=%s turn_id=%s active_mode=%s",
 			truncateSessionID(p.sessionID), truncateTurnID(p.turnID), p.state.ActiveMode)
 	}
-	*turnMessages = append(*turnMessages,
-		chatMessage{Role: "assistant", Content: assistant},
-		chatMessage{Role: "user", Content: followUp.Handoff},
-	)
-	*turnUserMessage = followUp.Handoff
+	*instruction = serverInstruction{kind: followUp.Kind, note: followUp.Handoff}
+	if followUp.Kind == "corrective_retry" {
+		instruction.rejectedDraft = clientVisibleAssistantContent(assistant)
+	}
 	return true
 }
 
@@ -201,10 +257,12 @@ func writeChatResponse(w http.ResponseWriter, body []byte, statusCode int) {
 func runChatRequest(p chatRunParams) {
 	chatStarted := time.Now()
 	modeContinuations := 0
-	correctiveRetryAttempted := false
+	correctiveRetries := 0
 
+	// The student's conversation is sent unchanged on every internal call; retries and phase
+	// handoffs travel in the system prompt (see serverInstruction).
 	turnMessages := append([]chatMessage(nil), p.req.Messages...)
-	turnUserMessage := p.userMessage
+	var instruction serverInstruction
 	var handoffParts []string
 	var lastAssistant string
 	responseStarted := false
@@ -224,6 +282,9 @@ func runChatRequest(p chatRunParams) {
 
 	for turn := 0; turn < maxChatInternalTurns; turn++ {
 		prompt, _, _, err := buildSystemPrompt(p.state)
+		if block := instruction.systemBlock(); block != "" {
+			prompt = block + "\n\n" + prompt
+		}
 		if err != nil {
 			http.Error(p.w, "internal error", http.StatusInternalServerError)
 			if p.managesTurn() {
@@ -274,7 +335,7 @@ func runChatRequest(p chatRunParams) {
 			activeMode: p.state.ActiveMode,
 			phase:      p.state.ConversationPhase,
 		}
-		followUp := postProcessAssistantTurnWithGuard(p.state, assistant, correctiveRetryAttempted, syncLog)
+		followUp := postProcessAssistantTurnWithGuard(p.state, assistant, correctiveRetries >= maxCorrectiveRetries, syncLog)
 		p.states.set(p.sessionID, p.state)
 
 		if followUp.Kind == "server_results" || followUp.Kind == "fail_closed" {
@@ -300,11 +361,13 @@ func runChatRequest(p chatRunParams) {
 
 		if followUp.ContinueTurn {
 			if followUp.Kind == "mode" || followUp.Kind == "results" {
-				handoffParts = append(handoffParts, assistant)
+				// Show fixed text, not the model's phase-closing reply: that reply is where the
+				// model grades the student, and its grading notes leaked into the display.
+				handoffParts = append(handoffParts, phaseClosingMessage)
 			}
 		}
 
-		if p.tryScheduleFollowUpTurn(followUp, assistant, &turnMessages, &turnUserMessage, &modeContinuations, &correctiveRetryAttempted) {
+		if p.tryScheduleFollowUpTurn(followUp, assistant, &instruction, &modeContinuations, &correctiveRetries) {
 			continue
 		}
 

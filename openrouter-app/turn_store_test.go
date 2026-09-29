@@ -96,23 +96,6 @@ func TestTurnStoreFailedPartialResume(t *testing.T) {
 	}
 }
 
-func TestBootstrapFlight(t *testing.T) {
-	store := newTurnStore()
-	sessionID := "sess-3"
-
-	if !store.beginBootstrap(sessionID) {
-		t.Fatal("expected bootstrap leader")
-	}
-	if store.beginBootstrap(sessionID) {
-		t.Fatal("expected bootstrap follower while in flight")
-	}
-
-	store.setBootstrapAssistant(sessionID, "hello")
-	if assistant, ok := store.getBootstrapAssistant(sessionID); !ok || assistant != "hello" {
-		t.Fatalf("cached bootstrap = %q, ok=%v", assistant, ok)
-	}
-}
-
 func TestReplaceAssistantContent(t *testing.T) {
 	raw := []byte(`{"choices":[{"message":{"content":"before"}}]}`)
 	updated, err := replaceAssistantContent(raw, "after")

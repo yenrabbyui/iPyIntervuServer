@@ -9,7 +9,6 @@ import (
 
 const (
 	turnIDHeader       = "X-Turn-Id"
-	bootstrapTurnID    = "ipyintervu-bootstrap"
 	maxTurnsPerSession = 32
 )
 
@@ -126,24 +125,14 @@ type chatTurnRecord struct {
 	updatedAt time.Time
 }
 
-type bootstrapFlight struct {
-	inFlight bool
-	done     bool
-	notify   chan struct{}
-}
-
 type turnStore struct {
 	mu              sync.Mutex
 	sessions        map[string]map[string]*chatTurnRecord
-	bootstrap       map[string]string // sessionID -> assistant text
-	bootstrapFlight map[string]*bootstrapFlight
 }
 
 func newTurnStore() *turnStore {
 	store := &turnStore{
 		sessions:        make(map[string]map[string]*chatTurnRecord),
-		bootstrap:       make(map[string]string),
-		bootstrapFlight: make(map[string]*bootstrapFlight),
 	}
 	go store.cleanupLoop()
 	return store
@@ -248,79 +237,6 @@ func writeTurnResponse(w http.ResponseWriter, rec *chatTurnRecord) {
 	_, _ = w.Write(body)
 }
 
-func (s *turnStore) getBootstrapAssistant(sessionID string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	assistant, ok := s.bootstrap[sessionID]
-	return assistant, ok
-}
-
-func (s *turnStore) setBootstrapAssistant(sessionID, assistant string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.bootstrap[sessionID] = assistant
-	if flight := s.bootstrapFlight[sessionID]; flight != nil {
-		flight.inFlight = false
-		flight.done = true
-		closeBootstrapNotify(flight)
-	}
-}
-
-func closeBootstrapNotify(flight *bootstrapFlight) {
-	select {
-	case flight.notify <- struct{}{}:
-	default:
-	}
-}
-
-func (s *turnStore) beginBootstrap(sessionID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.bootstrap[sessionID]; ok {
-		return false
-	}
-	flight := s.bootstrapFlight[sessionID]
-	if flight == nil {
-		flight = &bootstrapFlight{notify: make(chan struct{}, 1)}
-		s.bootstrapFlight[sessionID] = flight
-	}
-	if flight.inFlight {
-		return false
-	}
-	flight.inFlight = true
-	return true
-}
-
-func (s *turnStore) waitBootstrap(ctx context.Context, sessionID string) (string, error) {
-	for {
-		s.mu.Lock()
-		if assistant, ok := s.bootstrap[sessionID]; ok {
-			s.mu.Unlock()
-			return assistant, nil
-		}
-		flight := s.bootstrapFlight[sessionID]
-		notify := flight.notify
-		s.mu.Unlock()
-		if notify == nil {
-			return "", context.Canceled
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-notify:
-		}
-	}
-}
-
-func (s *turnStore) cancelBootstrap(sessionID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if flight := s.bootstrapFlight[sessionID]; flight != nil {
-		flight.inFlight = false
-		closeBootstrapNotify(flight)
-	}
-}
-
 func (s *turnStore) cleanupLoop() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
@@ -335,11 +251,6 @@ func (s *turnStore) cleanupLoop() {
 			}
 			if len(turns) == 0 {
 				delete(s.sessions, sessionID)
-			}
-		}
-		for sessionID := range s.bootstrap {
-			if _, ok := s.sessions[sessionID]; !ok {
-				delete(s.bootstrap, sessionID)
 			}
 		}
 		s.mu.Unlock()

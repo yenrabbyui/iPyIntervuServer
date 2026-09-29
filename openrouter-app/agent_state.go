@@ -59,6 +59,8 @@ type AgentSessionState struct {
 	ModeInterviewStep            string   `json:"modeInterviewStep,omitempty"`
 	ModeOpeningServed            bool     `json:"modeOpeningServed,omitempty"`
 	ModeUserAnsweredSinceOpening bool     `json:"modeUserAnsweredSinceOpening,omitempty"`
+	ModeQuestionsAsked           []string `json:"modeQuestionsAsked,omitempty"`
+	ModeQuestionsBeforeCode      int      `json:"modeQuestionsBeforeCode,omitempty"`
 
 	// Tier C — results
 	FinalRating            string     `json:"finalRating,omitempty"`

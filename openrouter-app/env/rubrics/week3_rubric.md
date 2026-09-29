@@ -45,7 +45,7 @@ You use type casting when you want to get a number from the user. input() gives 
 - factually correct
 - covers main points (variables, types, input, output)
 - can describe when to use type casting
-- can describe formatted strings or string methods
+- can describe formatted strings (f-strings) for output
 - solid and accurate
 - may lack depth on edge cases or best practices
 

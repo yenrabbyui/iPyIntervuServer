@@ -6,7 +6,7 @@ Variables store data for problem solving. Data types determine operations. Expre
 
 ## Key Concepts Overview
 
-Variables (named storage, meaningful names). Data types: int, float, str. Expressions: arithmetic (+, -, *, /, //, %, **). Problem decomposition: identify what to store, what to calculate.
+Variables (named storage, meaningful names). Data types: int, float, str (text such as "Ava"), bool (True/False). Expressions: arithmetic (+, -, *, /, //, %, **). Problem decomposition: identify what to store, what to calculate.
 
 ## Simple Example Demonstration
 
