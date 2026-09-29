@@ -30,7 +30,7 @@ let activeChatAbort = null;
 let chatInFlight = false;
 
 const MAX_USER_MESSAGE_CHARS = 5000;
-const MAX_CHAT_RETRIES = 20;
+const MAX_CHAT_RETRIES = 5;
 const CHAT_RETRY_DELAY_MS = 1500;
 const MAX_CHAT_RECOVERY_ATTEMPTS = 4;
 const CHAT_READ_TIMEOUT_MS = 120_000;
@@ -627,8 +627,8 @@ function formatUserFacingError(error) {
   if (isRetryableNetworkError(error)) {
     return (
       "Connection lost while waiting for a response. " +
-      "Your reply may have been cut off—try sending again. " +
-      "If this keeps happening, wait a moment and refresh the page."
+      "Your reply may have been cut off. " +
+      "Please try again, re-enter your last posting."
     );
   }
 
