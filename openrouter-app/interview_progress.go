@@ -28,6 +28,8 @@ func resetModeInterviewProgress(state *AgentSessionState) {
 	state.ModeUserAnsweredSinceOpening = false
 	state.ModeQuestionsAsked = nil
 	state.ModeQuestionsBeforeCode = 0
+	state.ModeVagueAnswers = 0
+	state.ModeSimilarQuestionAsks = 0
 }
 
 func isFollowUpAssessmentTurn(state *AgentSessionState) bool {
@@ -47,6 +49,9 @@ func advanceInterviewProgressOnUserAnswer(state *AgentSessionState) {
 		return
 	}
 	state.ModeUserAnsweredSinceOpening = true
+	if isVagueAnswer(state.LastUserMessageRaw) {
+		state.ModeVagueAnswers++
+	}
 
 	switch state.ActiveMode {
 	case modeConceptual:
@@ -83,6 +88,10 @@ func updateInterviewProgressAfterAssistant(state *AgentSessionState, assistant s
 			state.ModeInterviewStep = interviewStepAwaitingAnswer
 		}
 		if q := lastQuestionSentence(clientVisibleAssistantContentGuarded(assistant, state)); q != "" {
+			// A rephrasing the student asked for is not the interview circling the same ground.
+			if repeatsRecordedQuestion(state, q) && !studentAskedForClarification(state.LastUserMessageRaw) {
+				state.ModeSimilarQuestionAsks++
+			}
 			state.ModeQuestionsAsked = append(state.ModeQuestionsAsked, q)
 		}
 		if state.ActiveMode == modeCode {
@@ -193,6 +202,9 @@ func interviewProgressSnapshot(state *AgentSessionState) map[string]any {
 	if len(state.ModeQuestionsAsked) > 0 {
 		snap["questionsAsked"] = state.ModeQuestionsAsked
 	}
+	snap["vagueAnswers"] = state.ModeVagueAnswers
+	snap["similarQuestionAsks"] = state.ModeSimilarQuestionAsks
+	snap["repetitionPolicy"] = "Do not cover ground an earlier question in this mode already covered: the same question, in any wording, may be put to the student at most twice in the whole mode. If the student answers vaguely twice, stop asking — close the mode with the bucket their answers support (vague or no strategy is Not Ready Yet) instead of rephrasing the question to fish for a better answer."
 	if state.ActiveMode == modeConceptual && state.isProblemDecompositionWeek() {
 		snap["decompositionPartsAnswered"] = decompositionPartsAnswered(state)
 	}
@@ -204,7 +216,7 @@ func interviewProgressSnapshot(state *AgentSessionState) map[string]any {
 			snap["forwardPolicy"] = "After decomposition is answered, explicitly ask the student to paste their Python code — then evaluate pasted code before complete. Never repeat the opening decomposition ask or complete after decomposition alone."
 		}
 	case modeBug:
-		snap["forwardPolicy"] = "After the opening debug question is answered, ask follow-up debugging-process questions — never repeat the opening question verbatim."
+		snap["forwardPolicy"] = fmt.Sprintf("After the opening debug question is answered, ask follow-up debugging-process questions that open new ground (a different tool, assumption, or narrowing step) — never repeat the opening question or circle an earlier one. Ask at most %d questions in this mode including the opening one; %d have been asked. Then close with bugAssessmentPhase complete plus bugAssessmentBucket.", maxBugQuestions, len(state.ModeQuestionsAsked))
 	case modeConceptual:
 		if state.isProblemDecompositionWeek() {
 			snap["forwardPolicy"] = week1ConceptualForwardPolicy
@@ -224,9 +236,9 @@ func followUpTurnDirective(state *AgentSessionState) string {
 	}
 	if modeClosingDue(state) {
 		phaseField, bucketField, _ := currentModeSyncFields(state)
-		return "THIS TURN MUST CLOSE THE INTERVIEW: the student has answered enough questions (" + closingDueReason(state) +
-			"). Ask no question and do not ask for code. Send one brief neutral closing sentence and end with ```_ipyintervu``` containing \"" + phaseField + "\": \"complete\" and \"" +
-			bucketField + "\" (Not Ready Yet, Competent, or Exceptional) based on all of the student's answers.\n"
+		return "THIS TURN MUST CLOSE THE INTERVIEW: " + closingDueReason(state) +
+			". Ask no question, do not rephrase an earlier question, and do not ask for code. Send one brief neutral closing sentence and end with ```_ipyintervu``` containing \"" + phaseField + "\": \"complete\" and \"" +
+			bucketField + "\" (Not Ready Yet, Competent, or Exceptional) based on all of the student's answers — vague or absent answers are Not Ready Yet.\n"
 	}
 	return "THIS TURN: the scenario is already on screen and the student's latest message answers your previous question. The student has already answered: " +
 		quotedQuestions(state.ModeQuestionsAsked) +
@@ -342,12 +354,62 @@ func codeClosingDue(state *AgentSessionState) bool {
 	return len(asked) >= maxPostCodeQuestions || (len(asked) >= 2 && askedAboutAIUse(asked))
 }
 
+// maxBugQuestions caps Bug Hunting at the opening scenario question plus three debugging
+// follow-ups. Without a cap the mode had no finish condition at all, and the model kept
+// circling the same snippet with slight variations of questions it had already asked.
+const maxBugQuestions = 4
+
+// bugClosingDue reports that this bug turn must be the closing reply: the student has
+// answered the opening debug question and the mode has hit its question cap.
+func bugClosingDue(state *AgentSessionState) bool {
+	if state.ActiveMode != modeBug || !isFollowUpAssessmentTurn(state) || studentAskedForClarification(state.LastUserMessageRaw) {
+		return false
+	}
+	return len(state.ModeQuestionsAsked) >= maxBugQuestions
+}
+
+// maxVagueAnswers: two answers with nothing to assess end the mode. Re-asking after a
+// vague answer produced the reported loop — the student hedged, the interviewer rephrased,
+// and neither the evidence nor the bucket changed. Two vague answers are themselves the
+// evidence (see Bug assessment criteria: vague or no strategy → Not Ready Yet).
+const maxVagueAnswers = 2
+
+// maxSimilarQuestionAsks caps how many times the interview may put essentially the same
+// question to the student: the first ask plus one re-ask. Once one has been asked twice,
+// asking around it again yields nothing, so the mode closes on the answers it has.
+const maxSimilarQuestionAsks = 2
+
+// overfitLimitsApply gates the vagueness and repetition caps. Code Problem mode cannot
+// close before the student pastes code — that paste is the mode's required evidence — so
+// there the caps bind only after the submission.
+func overfitLimitsApply(state *AgentSessionState) bool {
+	if !isFollowUpAssessmentTurn(state) {
+		return false
+	}
+	return state.ActiveMode != modeCode || state.ModeInterviewStep == interviewStepCodeSubmitted
+}
+
+func vagueAnswerLimitReached(state *AgentSessionState) bool {
+	return overfitLimitsApply(state) && state.ModeVagueAnswers >= maxVagueAnswers
+}
+
+func similarQuestionLimitReached(state *AgentSessionState) bool {
+	return overfitLimitsApply(state) && state.ModeSimilarQuestionAsks >= maxSimilarQuestionAsks-1
+}
+
 // modeClosingDue reports that the active mode's interview is finished and this turn must close it.
 func modeClosingDue(state *AgentSessionState) bool {
-	return conceptualClosingDue(state) || codeClosingDue(state)
+	return vagueAnswerLimitReached(state) || similarQuestionLimitReached(state) ||
+		conceptualClosingDue(state) || codeClosingDue(state) || bugClosingDue(state)
 }
 
 func closingDueReason(state *AgentSessionState) string {
+	if vagueAnswerLimitReached(state) {
+		return fmt.Sprintf("the student has answered vaguely %d times, so further questions will not produce better evidence", state.ModeVagueAnswers)
+	}
+	if similarQuestionLimitReached(state) {
+		return "the same question has already been asked twice"
+	}
 	if state.ActiveMode == modeCode {
 		return fmt.Sprintf("code pasted and %d questions about it answered", len(postCodeQuestions(state)))
 	}
@@ -416,17 +478,60 @@ func isRepeatedQuestion(prev, next string) bool {
 	return shared >= 2 && float64(shared)/float64(smaller) >= 0.6
 }
 
+var clarificationPhrases = []string{"don't understand", "dont understand", "not sure what you mean", "confused", "clarify", "rephrase"}
+
 func studentAskedForClarification(userMessage string) bool {
 	lower := strings.ToLower(userMessage)
 	if strings.Contains(lower, "?") {
 		return true
 	}
-	for _, phrase := range []string{"don't understand", "dont understand", "not sure what you mean", "confused", "clarify", "rephrase"} {
-		if strings.Contains(lower, phrase) {
+	return containsAny(lower, clarificationPhrases)
+}
+
+func containsAny(text string, phrases []string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
 			return true
 		}
 	}
 	return false
+}
+
+// vagueAnswerPhrases mark an answer that declines to commit to anything assessable.
+var vagueAnswerPhrases = []string{
+	"i don't know", "i dont know", "don't know", "dont know", "no idea", "not sure",
+	"unsure", "no clue", "idk", "dunno", "i guess", "maybe", "whatever", "beats me",
+	"can't think", "cant think", "nothing comes to mind", "hard to say", "who knows",
+}
+
+// vagueHedgeWordLimit: a hedge inside a substantial answer ("I don't know the cause, but
+// I would add a print before the loop and compare the counter to the intended total")
+// is thinking out loud, not a non-answer — only short hedged replies count as vague.
+const vagueHedgeWordLimit = 12
+
+// vagueBareWordLimit: an answer this short ("print statements", "not really") states no
+// strategy the rubric can score, whatever words it uses.
+const vagueBareWordLimit = 3
+
+// isVagueAnswer reports an answer that gives the interviewer nothing to assess. A request
+// to have the question explained is not an answer at all, so it never counts as vague.
+func isVagueAnswer(userMessage string) bool {
+	trimmed := strings.TrimSpace(userMessage)
+	if trimmed == "" {
+		return true
+	}
+	if looksLikeCodeSubmission(trimmed) {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	if containsAny(lower, clarificationPhrases) {
+		return false
+	}
+	words := len(strings.Fields(lower))
+	if words <= vagueBareWordLimit {
+		return true
+	}
+	return words <= vagueHedgeWordLimit && containsAny(lower, vagueAnswerPhrases)
 }
 
 // repeatsAnsweredQuestion reports a follow-up reply that re-asks any question the student
@@ -444,11 +549,20 @@ func repeatsAnsweredQuestion(state *AgentSessionState, assistant string) bool {
 	if next := lastQuestionSentence(clientVisibleAssistantContent(assistant)); next != "" {
 		candidates = append(candidates, next)
 	}
+	for _, q := range candidates {
+		if repeatsRecordedQuestion(state, q) {
+			return true
+		}
+	}
+	return false
+}
+
+// repeatsRecordedQuestion reports whether question covers the same ground as one already
+// asked in this mode.
+func repeatsRecordedQuestion(state *AgentSessionState, question string) bool {
 	for _, prev := range state.ModeQuestionsAsked {
-		for _, q := range candidates {
-			if isRepeatedQuestion(prev, q) {
-				return true
-			}
+		if isRepeatedQuestion(prev, question) {
+			return true
 		}
 	}
 	return false

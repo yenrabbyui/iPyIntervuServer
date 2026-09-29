@@ -61,6 +61,10 @@ type AgentSessionState struct {
 	ModeUserAnsweredSinceOpening bool     `json:"modeUserAnsweredSinceOpening,omitempty"`
 	ModeQuestionsAsked           []string `json:"modeQuestionsAsked,omitempty"`
 	ModeQuestionsBeforeCode      int      `json:"modeQuestionsBeforeCode,omitempty"`
+	// ModeVagueAnswers counts answers in this mode that gave nothing to assess (see isVagueAnswer).
+	ModeVagueAnswers int `json:"modeVagueAnswers,omitempty"`
+	// ModeSimilarQuestionAsks counts delivered questions that re-asked an earlier one in this mode.
+	ModeSimilarQuestionAsks int `json:"modeSimilarQuestionAsks,omitempty"`
 
 	// Tier C — results
 	FinalRating            string     `json:"finalRating,omitempty"`

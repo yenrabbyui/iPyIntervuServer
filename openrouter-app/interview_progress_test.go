@@ -503,3 +503,163 @@ func TestCodeRequestPattern(t *testing.T) {
 		}
 	}
 }
+
+func TestIsVagueAnswer(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"idk":                             true,
+		"I don't know.":                   true,
+		"not sure, maybe print something": true,
+		"print statements":                true,
+		"":                                true,
+		"I'm not sure of the cause, but I would print the running total before and after the addition and compare it to the intended total": false,
+		"I would reread the intended behavior, then print the total on each pass to see where it drifts":                                    false,
+		"what do you mean by narrowing it down?": false,
+		"I'm confused":                           false,
+	} {
+		if got := isVagueAnswer(msg); got != want {
+			t.Errorf("isVagueAnswer(%q) = %v, want %v", msg, got, want)
+		}
+	}
+}
+
+func withBugSync(text string) string {
+	return text + "\n\n```_ipyintervu\n{\"bugAssessmentPhase\": \"in_progress\"}\n```"
+}
+
+func bugFollowUpState() *AgentSessionState {
+	return &AgentSessionState{
+		ConversationPhase:            phaseAssessmentInProgress,
+		ActiveMode:                   modeBug,
+		CurrentWeekNumber:            6,
+		SelectedKeyConcept:           "Week 6 - Loops",
+		BugAssessmentPhase:           assessmentPhaseInProgress,
+		ModeOpeningServed:            true,
+		ModeUserAnsweredSinceOpening: true,
+		ModeInterviewStep:            interviewStepFollowUp,
+	}
+}
+
+// Two vague answers end the mode: the reported loop was the interviewer re-approaching the
+// same ground after each hedge instead of scoring what it already had.
+func TestBugModeClosesAfterTwoVagueAnswers(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase:  phaseAssessmentInProgress,
+		ActiveMode:         modeBug,
+		CurrentWeekNumber:  6,
+		SelectedKeyConcept: "Week 6 - Loops",
+		BugAssessmentPhase: assessmentPhaseInProgress,
+	}
+	deliver := func(assistant, student string) {
+		t.Helper()
+		if f := postProcessAssistantTurn(state, withBugSync(assistant), false, nil); f.Kind != "" || f.ContinueTurn {
+			t.Fatalf("expected %q to be delivered, got %+v", assistant, f)
+		}
+		applyPreChatUserUpdate(state, student)
+	}
+
+	deliver("I'm Riley, a QA engineer here at Northwind Tools. Our internal report script prints a running total that ends up one short of the intended amount every run. How would you go about finding where that happens?",
+		"idk")
+	if state.ModeVagueAnswers != 1 {
+		t.Fatalf("vague answers = %d, want 1", state.ModeVagueAnswers)
+	}
+	if modeClosingDue(state) {
+		t.Fatal("one vague answer should not end the mode")
+	}
+
+	deliver("Understood. What would you want in front of you before changing anything in that script?",
+		"not sure")
+	if !modeClosingDue(state) {
+		t.Fatalf("closing should be due after %d vague answers", state.ModeVagueAnswers)
+	}
+	prompt, _, _, err := buildSystemPrompt(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "THIS TURN MUST CLOSE THE INTERVIEW") || !strings.Contains(prompt, "answered vaguely") {
+		t.Fatal("prompt should require the closing reply and name the vague answers")
+	}
+
+	narrower := withBugSync("Let's simplify. What is the very first value you would inspect in that script?")
+	if f := postProcessAssistantTurn(state, narrower, false, nil); f.Kind != "corrective_retry" || !strings.Contains(f.Handoff, "the interview is finished") {
+		t.Fatalf("expected closing retry instead of another narrower question, got %+v", f)
+	}
+
+	closing := "Thanks — that's everything I needed for this portion.\n\n```_ipyintervu\n{\"bugAssessmentPhase\": \"complete\", \"bugAssessmentBucket\": \"Not Ready Yet\"}\n```"
+	if f := postProcessAssistantTurn(state, closing, true, nil); f.Kind != "server_results" {
+		t.Fatalf("expected server results after the bug closing reply, got %+v", f)
+	}
+}
+
+func TestBugModeQuestionCap(t *testing.T) {
+	state := bugFollowUpState()
+	state.LastUserMessageRaw = "I would print the running total on each pass and compare it with the intended amount."
+	state.ModeQuestionsAsked = []string{"How would you find it?", "What would you check first?", "What if that showed nothing?"}
+	if bugClosingDue(state) {
+		t.Fatal("closing should not be due before the bug question cap")
+	}
+	state.ModeQuestionsAsked = append(state.ModeQuestionsAsked, "Which assumption would you test next?")
+	if !bugClosingDue(state) {
+		t.Fatalf("closing should be due at %d questions", maxBugQuestions)
+	}
+}
+
+// A re-ask that slips past the corrective retry is the second and last ask of that
+// question: the mode closes rather than circling it again.
+func TestSimilarQuestionAsksLimitedToTwo(t *testing.T) {
+	state := bugFollowUpState()
+	state.ModeQuestionsAsked = []string{"How would you find where that running total goes wrong?"}
+	state.LastUserMessageRaw = "I would print the running total before and after the addition."
+
+	reask := withBugSync("Got it. How would you find where that running total goes wrong?")
+	if f := postProcessAssistantTurn(state, reask, false, nil); f.Kind != "corrective_retry" {
+		t.Fatalf("expected a corrective retry for the re-ask, got %+v", f)
+	}
+	if state.ModeSimilarQuestionAsks != 0 {
+		t.Fatalf("a rejected reply the student never saw should not count, got %d", state.ModeSimilarQuestionAsks)
+	}
+
+	if f := postProcessAssistantTurn(state, reask, true, nil); f.Kind != "" {
+		t.Fatalf("expected the post-retry reply to be delivered, got %+v", f)
+	}
+	if state.ModeSimilarQuestionAsks != 1 {
+		t.Fatalf("similar asks = %d, want 1", state.ModeSimilarQuestionAsks)
+	}
+	if !modeClosingDue(state) {
+		t.Fatal("closing should be due once a question has been asked twice")
+	}
+}
+
+func TestRewordingAfterClarificationDoesNotCountAsSimilarAsk(t *testing.T) {
+	state := bugFollowUpState()
+	state.ModeQuestionsAsked = []string{"How would you find where that running total goes wrong?"}
+	state.LastUserMessageRaw = "can you rephrase that?"
+
+	reworded := withBugSync("Sure. How would you find where that running total goes wrong — what would you look at?")
+	if f := postProcessAssistantTurn(state, reworded, false, nil); f.Kind != "" {
+		t.Fatalf("expected the rewording to be delivered, got %+v", f)
+	}
+	if state.ModeSimilarQuestionAsks != 0 {
+		t.Fatalf("a rewording the student asked for should not count, got %d", state.ModeSimilarQuestionAsks)
+	}
+}
+
+func TestCodeModeLimitsWaitForThePaste(t *testing.T) {
+	state := &AgentSessionState{
+		ConversationPhase:            phaseAssessmentInProgress,
+		ActiveMode:                   modeCode,
+		CurrentWeekNumber:            2,
+		SelectedKeyConcept:           "Week 2 - Variables",
+		ModeOpeningServed:            true,
+		ModeUserAnsweredSinceOpening: true,
+		ModeInterviewStep:            interviewStepAwaitingCode,
+		ModeVagueAnswers:             3,
+		ModeSimilarQuestionAsks:      2,
+	}
+	if modeClosingDue(state) {
+		t.Fatal("code mode cannot close before the student pastes code")
+	}
+	state.ModeInterviewStep = interviewStepCodeSubmitted
+	if !modeClosingDue(state) {
+		t.Fatal("after the paste the vagueness and repetition caps apply")
+	}
+}
