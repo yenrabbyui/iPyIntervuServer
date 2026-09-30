@@ -78,8 +78,12 @@ type AgentSessionState struct {
 	LastAssistantSummary string   `json:"lastAssistantSummary,omitempty"`
 	KBFilesLoaded        []string `json:"kbFilesLoaded"`
 
+	// Persona and concept data (for instructions)
+	PersonaNames        map[string]string `json:"personaNames,omitempty"` // Maps mode/number to human names
+	CurrentWeekConcepts []string          `json:"currentWeekConcepts,omitempty"` // Concepts allowed this week and prior
+
 	// Prompt caching (not serialized to client)
-	StaticCorePrompt  string `json:"-"` // Static instructions cached once per session
+	StaticCorePrompt   string `json:"-"` // Static instructions cached once per session
 	CachedSystemPrompt string `json:"-"` // Full system prompt (static + week-specific)
 
 	UpdatedAt time.Time `json:"-"`

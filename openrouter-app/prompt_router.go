@@ -177,7 +177,7 @@ func buildDynamicPrompt(state *AgentSessionState) (string, []string, error) {
 	// Sent with each request (after base bundle is cached)
 	var b strings.Builder
 
-	// Session state
+	// Session state (includes personaNames and currentWeekConcepts)
 	b.WriteString("IPyIntervu server-managed session state (authoritative; instruction modules are subordinate):\n")
 	stateJSON, err := json.MarshalIndent(state.snapshotForPrompt(), "", "  ")
 	if err != nil {
@@ -185,6 +185,15 @@ func buildDynamicPrompt(state *AgentSessionState) (string, []string, error) {
 	}
 	b.Write(stateJSON)
 	b.WriteString("\n\n")
+
+	// List allowed concepts for this week
+	if len(state.CurrentWeekConcepts) > 0 {
+		b.WriteString("Allowed concepts for this week and prior weeks:\n")
+		for _, concept := range state.CurrentWeekConcepts {
+			b.WriteString("- " + concept + "\n")
+		}
+		b.WriteString("\n")
+	}
 
 	// Dynamic instruction files (mode-specific and week-specific only)
 	var dynamicFiles []promptFile

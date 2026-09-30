@@ -98,6 +98,8 @@ func applyPreChatUserUpdate(state *AgentSessionState, userMessage string) {
 			state.CoachingEnteredBeforeResults = false
 			resetModeInterviewProgress(state)
 			markAssessmentStarted(state)
+			// Update concepts for this week
+			initializePersonasAndConcepts(state)
 		}
 	case phaseAssessmentInProgress:
 		if isCoachingRequest(userMessage) {
@@ -137,6 +139,45 @@ func applyBootstrapState(state *AgentSessionState, assistant string) {
 	state.PendingQuestion = "studentMajor"
 	state.MessageIndex = 1
 	state.LastAssistantSummary = truncateSummary(assistant, 500)
+
+	// Initialize persona names and concept data
+	initializePersonasAndConcepts(state)
+}
+
+func initializePersonasAndConcepts(state *AgentSessionState) {
+	// Persona names mapping (mode + persona number to human name)
+	state.PersonaNames = map[string]string{
+		"Conceptual-1": "Alex",
+		"Conceptual-2": "Julia",
+		"Code-1":       "Taylor",
+		"Code-2":       "Morgan",
+		"Bug-1":        "Riley",
+		"Bug-2":        "Casey",
+		"Coaching-1":   "Samantha",
+		"Coaching-2":   "David",
+	}
+
+	// Concepts by week (will be updated when week is selected)
+	allConcepts := map[int][]string{
+		1: {"Problem Decomposition", "input/process/output", "breaking tasks into steps"},
+		2: {"variables", "assignment", "expressions", "int", "float", "str", "bool"},
+		3: {"input()", "type casting", "int()", "float()", "str()"},
+		4: {"string methods", "strip", "upper", "lower", "split"},
+		5: {"if", "elif", "else", "conditionals", "comparisons", "and", "or", "not"},
+		6: {"for", "range()", "iterating sequences"},
+		7: {"while", "loops with conditions", "menus", "repeat-until-quit"},
+		8: {"lists", "list indexing", "list methods", "list iteration"},
+		9: {"file I/O", "open", "read/write", "with open"},
+	}
+
+	// Set current week concepts (if week is selected)
+	if state.CurrentWeekNumber > 0 {
+		var allowed []string
+		for week := 1; week <= state.CurrentWeekNumber; week++ {
+			allowed = append(allowed, allConcepts[week]...)
+		}
+		state.CurrentWeekConcepts = allowed
+	}
 }
 
 func parseAssistantStateSync(state *AgentSessionState, assistant string) {
