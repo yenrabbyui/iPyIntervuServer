@@ -89,9 +89,32 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 		}
 
 		phaseBefore := state.ConversationPhase
+		weekNumberBefore := state.CurrentWeekNumber
+
 		if !skipPreChat {
 			applyPreChatUserUpdate(state, userMessage)
 		}
+
+		// Cache management: prime cache when week is first selected
+		if weekNumberBefore == 0 && state.CurrentWeekNumber > 0 {
+			if state.StaticCorePrompt == "" {
+				state.StaticCorePrompt = buildStaticCorePrompt()
+			}
+			// Prime cache asynchronously with static core
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				_ = primeCacheWithStaticCore(ctx, apiKey, state.StaticCorePrompt)
+			}()
+		}
+
+		// Ensure full cached prompt exists when week is set
+		if state.CurrentWeekNumber > 0 && state.CachedSystemPrompt == "" {
+			fullPrompt, _, bundleID, _ := buildSystemPrompt(state)
+			state.CachedSystemPrompt = fullPrompt
+			state.InstructionBundleID = bundleID
+		}
+
 		states.set(sessionID, state)
 
 		log.Printf("[openrouter] chat_start session=%s turn_id=%s active_mode=%s phase=%s message_index=%d",
@@ -281,16 +304,22 @@ func runChatRequest(p chatRunParams) {
 	}()
 
 	for turn := 0; turn < maxChatInternalTurns; turn++ {
-		prompt, _, _, err := buildSystemPrompt(p.state)
+		// Use cached prompt if available; otherwise build it (for pre-assessment turns)
+		prompt := p.state.CachedSystemPrompt
+		if prompt == "" {
+			var err error
+			prompt, _, _, err = buildSystemPrompt(p.state)
+			if err != nil {
+				http.Error(p.w, "internal error", http.StatusInternalServerError)
+				if p.managesTurn() {
+					p.finalizeTurn(displayRaw(), nil, http.StatusInternalServerError, true)
+				}
+				return
+			}
+		}
+
 		if block := instruction.systemBlock(); block != "" {
 			prompt = block + "\n\n" + prompt
-		}
-		if err != nil {
-			http.Error(p.w, "internal error", http.StatusInternalServerError)
-			if p.managesTurn() {
-				p.finalizeTurn(displayRaw(), nil, http.StatusInternalServerError, true)
-			}
-			return
 		}
 
 		payload, err := json.Marshal(chatCompletionRequest{

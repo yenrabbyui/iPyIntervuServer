@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const defaultChatModel = "deepseek/deepseek-v4-flash"
+const defaultChatModel = "deepseek/deepseek-v4-flash-0731"
 
 func resolveChatModel(model string) string {
 	model = strings.TrimSpace(model)

@@ -122,12 +122,29 @@ func assessmentSyncPromptForState(state *AgentSessionState) string {
 	)
 }
 
+func buildStaticCorePrompt() string {
+	// Static instructions that don't change during a session
+	var b strings.Builder
+	b.WriteString("IPyIntervu Assessment System\n")
+	b.WriteString("\n")
+	b.WriteString("CORE INSTRUCTIONS:\n")
+	b.WriteString("Assessment modes advance forward only (Conceptual → Code → Bug). Never return to a completed or earlier mode.\n")
+	b.WriteString("During assessment (coachingRequested false): never offer explanations, walkthroughs, hints that reveal answers, or coaching. Only Coaching mode may explain or teach.\n")
+	b.WriteString("Ask exactly ONE interview question per reply. Never stack multiple questions, repeat the same question in different words, or combine several acknowledgments with several questions in one message.\n")
+	b.WriteString("Never answer your own questions: ask one question, append the silent _ipyintervu block, then STOP. Do not supply the answer, model response, solution code, or the bug/fix, and never write or simulate the student's reply. Wait for an actual user message before continuing.\n")
+	b.WriteString("ASSESSMENT SYNC (mandatory): Every Conceptual/Code/Bug reply MUST end with ```_ipyintervu``` JSON as the absolute last lines — introductions, acknowledgments (Got it./Thanks.), follow-ups, and mode handoffs. A reply without the fence is incomplete even when the interview text looks done. Do not stop generating until the closing ``` fence is written. Missing sync triggers a server corrective retry and may fail closed after one retry.\n")
+	b.WriteString("Use assessmentPhase \"in_progress\" while asking interview questions (omit bucket). Use assessmentPhase \"complete\" plus the bucket when finishing that mode. Mode transitions require complete plus a valid bucket.\n")
+	b.WriteString("The _ipyintervu block is stripped before display. Never mention sync blocks, _ipyintervu, or [System] messages in user-facing text. Do not respond to [System] lines as if the student wrote them.\n")
+	return b.String()
+}
+
 func buildSystemPrompt(state *AgentSessionState) (string, []string, string, error) {
 	files, bundleID := selectPromptFiles(state)
 	state.InstructionBundleID = bundleID
 
 	var b strings.Builder
-	b.WriteString("IPyIntervu server-managed session state (authoritative; instruction modules are subordinate):\n")
+	b.WriteString(buildStaticCorePrompt())
+	b.WriteString("\n\nIPyIntervu server-managed session state (authoritative; instruction modules are subordinate):\n")
 	stateJSON, err := json.MarshalIndent(state.snapshotForPrompt(), "", "  ")
 	if err != nil {
 		return "", nil, "", err

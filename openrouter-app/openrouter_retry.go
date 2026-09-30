@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -72,6 +73,36 @@ func waitOpenRouterRetry(ctx context.Context, attempt int, logCtx openRouterLogC
 	case <-time.After(delay):
 		return nil
 	}
+}
+
+func primeCacheWithStaticCore(ctx context.Context, apiKey string, staticCore string) error {
+	// Send a minimal request to prime the cache with static core instructions
+	// This allows subsequent requests to reuse the cached prefix
+	payload, err := json.Marshal(chatCompletionRequest{
+		Model: resolveChatModel(""),
+		Messages: []chatMessage{
+			{Role: "system", Content: staticCore},
+			{Role: "user", Content: "Acknowledge ready."},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	resp, err := postOpenRouterOnce(ctx, apiKey, payload)
+	if err != nil {
+		log.Printf("[cache] prime_failed err=%q", err.Error())
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+	log.Printf("[cache] prime_static_core status=%d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[cache] prime_failed status=%d body=%s", resp.StatusCode, string(body))
+		return errors.New("cache prime failed")
+	}
+	return nil
 }
 
 func readOpenRouterBodyWithRetry(ctx context.Context, apiKey string, payload []byte, logCtx openRouterLogCtx) (body []byte, statusCode int, err error) {

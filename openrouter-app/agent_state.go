@@ -78,6 +78,10 @@ type AgentSessionState struct {
 	LastAssistantSummary string   `json:"lastAssistantSummary,omitempty"`
 	KBFilesLoaded        []string `json:"kbFilesLoaded"`
 
+	// Prompt caching (not serialized to client)
+	StaticCorePrompt  string `json:"-"` // Static instructions cached once per session
+	CachedSystemPrompt string `json:"-"` // Full system prompt (static + week-specific)
+
 	UpdatedAt time.Time `json:"-"`
 }
 
