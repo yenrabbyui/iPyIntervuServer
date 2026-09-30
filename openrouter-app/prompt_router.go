@@ -122,6 +122,27 @@ func assessmentSyncPromptForState(state *AgentSessionState) string {
 	)
 }
 
+func buildWeekRubric(weekNumber int) (string, error) {
+	// Build just the week's rubric for caching
+	if weekNumber <= 0 {
+		return "", nil
+	}
+
+	var b strings.Builder
+	weekFile := fmt.Sprintf("env/rubrics/week%d_rubric.md", weekNumber)
+	data, err := instructionFS.ReadFile(weekFile)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", weekFile, err)
+	}
+
+	b.WriteString("=== ")
+	b.WriteString(fmt.Sprintf("week%d_rubric.md", weekNumber))
+	b.WriteString(" ===\n")
+	b.Write(data)
+	b.WriteString("\n")
+	return b.String(), nil
+}
+
 func buildBaseBundle() (string, error) {
 	// Base bundle: static instructions that don't change during session
 	// Sent once to cache, then reused for all requests

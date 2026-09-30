@@ -75,14 +75,14 @@ func waitOpenRouterRetry(ctx context.Context, attempt int, logCtx openRouterLogC
 	}
 }
 
-func primeCacheWithBaseBundle(ctx context.Context, apiKey string, baseBundle string) error {
-	// Send base bundle to prime cache
-	// This allows subsequent requests to reuse the cached ~50KB prefix
+func primeCacheWithPrompt(ctx context.Context, apiKey string, prompt string) error {
+	// Send prompt to prime OpenRouter's cache
+	// This caches the prompt prefix for reuse in subsequent requests
 	payload, err := json.Marshal(chatCompletionRequest{
 		Model: resolveChatModel(""),
 		Messages: []chatMessage{
-			{Role: "system", Content: baseBundle},
-			{Role: "user", Content: "Cache ready."},
+			{Role: "system", Content: prompt},
+			{Role: "user", Content: "Ready."},
 		},
 	})
 	if err != nil {
@@ -91,15 +91,13 @@ func primeCacheWithBaseBundle(ctx context.Context, apiKey string, baseBundle str
 
 	resp, err := postOpenRouterOnce(ctx, apiKey, payload)
 	if err != nil {
-		log.Printf("[cache] prime_failed err=%q", err.Error())
 		return err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	log.Printf("[cache] prime_base_bundle status=%d", resp.StatusCode)
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[cache] prime_failed status=%d body=%s", resp.StatusCode, string(body))
+		log.Printf("[cache] prime_failed status=%d", resp.StatusCode)
 		return errors.New("cache prime failed")
 	}
 	return nil

@@ -95,21 +95,18 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 			applyPreChatUserUpdate(state, userMessage)
 		}
 
-		// Cache management: prime cache when week is first selected
+		// Cache management: when week is first selected, prime week rubric cache
 		if weekNumberBefore == 0 && state.CurrentWeekNumber > 0 {
-			if state.StaticCorePrompt == "" {
-				// Build base bundle (protocols, entrypoint, modes-shared, week-scope)
-				baseBundle, err := buildBaseBundle()
-				if err == nil {
-					state.StaticCorePrompt = baseBundle
-					// Prime cache asynchronously with base bundle (~50KB)
-					go func() {
-						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-						defer cancel()
-						_ = primeCacheWithBaseBundle(ctx, apiKey, baseBundle)
-					}()
+			// Prime week rubric cache asynchronously
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				weekRubric, err := buildWeekRubric(state.CurrentWeekNumber)
+				if err == nil && weekRubric != "" {
+					_ = primeCacheWithPrompt(ctx, apiKey, weekRubric)
+					log.Printf("[cache] primed_week_rubric session=%s week=%d", truncateSessionID(sessionID), state.CurrentWeekNumber)
 				}
-			}
+			}()
 		}
 
 		states.set(sessionID, state)

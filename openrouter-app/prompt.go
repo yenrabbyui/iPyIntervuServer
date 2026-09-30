@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -75,8 +76,8 @@ func openRouterHeaders(req *http.Request, apiKey string) {
 	}
 }
 
-// handleBootstrap returns the fixed server-authored welcome; no model call.
-func handleBootstrap(states *agentStateStore) http.HandlerFunc {
+// handleBootstrap returns the fixed server-authored welcome; primes cache in background.
+func handleBootstrap(states *agentStateStore, apiKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID, ok := sessionIDFromContext(r.Context())
 		if !ok {
@@ -87,6 +88,14 @@ func handleBootstrap(states *agentStateStore) http.HandlerFunc {
 		state := states.getOrCreate(sessionID)
 		applyBootstrapState(state, setupWelcomeMessage)
 		states.set(sessionID, state)
+
+		// Prime base bundle cache in background (async)
+		go func() {
+			baseBundle, err := buildBaseBundle()
+			if err == nil {
+				primeCacheWithPrompt(context.Background(), apiKey, baseBundle)
+			}
+		}()
 
 		writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: setupWelcomeMessage})
 	}

@@ -63,7 +63,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /api/auth/challenge", auth.handleChallenge)
 	mux.HandleFunc("POST /api/auth/verify", auth.handleVerify)
-	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(agentStates)))
+	mux.HandleFunc("POST /api/session/bootstrap", auth.requireSession(handleBootstrap(agentStates, apiKey)))
 	mux.HandleFunc("GET /api/session/state", auth.requireSession(handleSessionState(agentStates)))
 	mux.HandleFunc("POST /api/chat", auth.requireSession(handleChat(apiKey, agentStates, turnStore)))
 	mux.Handle("GET /{$}", http.FileServer(http.FS(static)))
