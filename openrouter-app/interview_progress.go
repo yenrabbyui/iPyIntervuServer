@@ -89,7 +89,9 @@ func updateInterviewProgressAfterAssistant(state *AgentSessionState, assistant s
 		}
 		if q := lastQuestionSentence(clientVisibleAssistantContentGuarded(assistant, state)); q != "" {
 			// A rephrasing the student asked for is not the interview circling the same ground.
-			if repeatsRecordedQuestion(state, q) && !studentAskedForClarification(state.LastUserMessageRaw) {
+			// Also, follow-up questions in the opening turn should not be counted as repeats of the opening
+			// question, since asking "what's the value?" after asking "what's the type?" is elaboration, not repetition.
+			if isFollowUpAssessmentTurn(state) && repeatsRecordedQuestion(state, q) && !studentAskedForClarification(state.LastUserMessageRaw) {
 				state.ModeSimilarQuestionAsks++
 			}
 			state.ModeQuestionsAsked = append(state.ModeQuestionsAsked, q)
