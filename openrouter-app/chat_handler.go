@@ -98,21 +98,18 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 		// Cache management: prime cache when week is first selected
 		if weekNumberBefore == 0 && state.CurrentWeekNumber > 0 {
 			if state.StaticCorePrompt == "" {
-				state.StaticCorePrompt = buildStaticCorePrompt()
+				// Build base bundle (protocols, entrypoint, modes-shared, week-scope)
+				baseBundle, err := buildBaseBundle()
+				if err == nil {
+					state.StaticCorePrompt = baseBundle
+					// Prime cache asynchronously with base bundle (~50KB)
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						defer cancel()
+						_ = primeCacheWithBaseBundle(ctx, apiKey, baseBundle)
+					}()
+				}
 			}
-			// Prime cache asynchronously with static core
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				_ = primeCacheWithStaticCore(ctx, apiKey, state.StaticCorePrompt)
-			}()
-		}
-
-		// Ensure full cached prompt exists when week is set
-		if state.CurrentWeekNumber > 0 && state.CachedSystemPrompt == "" {
-			fullPrompt, _, bundleID, _ := buildSystemPrompt(state)
-			state.CachedSystemPrompt = fullPrompt
-			state.InstructionBundleID = bundleID
 		}
 
 		states.set(sessionID, state)
