@@ -80,7 +80,7 @@ type AgentSessionState struct {
 
 	// Persona and concept data (for instructions)
 	PersonaNames        map[string]string `json:"personaNames,omitempty"` // Maps mode/number to human names
-	CurrentWeekConcepts []string          `json:"currentWeekConcepts,omitempty"` // Concepts allowed this week and prior
+	CurrentWeekConcepts string            `json:"currentWeekConcepts,omitempty"` // Markdown: allowed concepts for this week and prior
 
 	// Prompt caching (not serialized to client)
 	StaticCorePrompt   string `json:"-"` // Static instructions cached once per session

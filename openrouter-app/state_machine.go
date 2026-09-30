@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -157,26 +158,27 @@ func initializePersonasAndConcepts(state *AgentSessionState) {
 		"Coaching-2":   "David",
 	}
 
-	// Concepts by week (will be updated when week is selected)
-	allConcepts := map[int][]string{
-		1: {"Problem Decomposition", "input/process/output", "breaking tasks into steps"},
-		2: {"variables", "assignment", "expressions", "int", "float", "str", "bool"},
-		3: {"input()", "type casting", "int()", "float()", "str()"},
-		4: {"string methods", "strip", "upper", "lower", "split"},
-		5: {"if", "elif", "else", "conditionals", "comparisons", "and", "or", "not"},
-		6: {"for", "range()", "iterating sequences"},
-		7: {"while", "loops with conditions", "menus", "repeat-until-quit"},
-		8: {"lists", "list indexing", "list methods", "list iteration"},
-		9: {"file I/O", "open", "read/write", "with open"},
+	// Concepts by week (markdown format)
+	weekMarkdown := map[int]string{
+		1: "**Week 1: Problem Decomposition**\n- input/process/output\n- breaking tasks into steps\n",
+		2: "**Week 2: Variables & Expressions**\n- variables, assignment, expressions\n- int, float, str, bool types\n",
+		3: "**Week 3: Input & Type Casting**\n- input() function\n- type casting: int(), float(), str()\n",
+		4: "**Week 4: String Methods**\n- string methods: strip, upper, lower, split\n",
+		5: "**Week 5: Conditionals**\n- if, elif, else\n- comparisons and boolean logic: and, or, not\n",
+		6: "**Week 6: For Loops**\n- for loops, range(), iterating sequences\n",
+		7: "**Week 7: While Loops & Menus**\n- while loops with conditions\n- menus and repeat-until-quit patterns\n",
+		8: "**Week 8: Lists**\n- lists, list indexing, list methods\n- list iteration and manipulation\n",
+		9: "**Week 9: Lists and File I/O**\n- file I/O: open, read/write, with open\n- organizing file data with lists\n",
 	}
 
-	// Set current week concepts (if week is selected)
+	// Build markdown for weeks 1 through currentWeekNumber
 	if state.CurrentWeekNumber > 0 {
-		var allowed []string
+		var b strings.Builder
+		b.WriteString("## Allowed Concepts (Weeks 1-" + fmt.Sprint(state.CurrentWeekNumber) + ")\n\n")
 		for week := 1; week <= state.CurrentWeekNumber; week++ {
-			allowed = append(allowed, allConcepts[week]...)
+			b.WriteString(weekMarkdown[week])
 		}
-		state.CurrentWeekConcepts = allowed
+		state.CurrentWeekConcepts = b.String()
 	}
 }
 

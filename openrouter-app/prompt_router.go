@@ -186,12 +186,9 @@ func buildDynamicPrompt(state *AgentSessionState) (string, []string, error) {
 	b.Write(stateJSON)
 	b.WriteString("\n\n")
 
-	// List allowed concepts for this week
-	if len(state.CurrentWeekConcepts) > 0 {
-		b.WriteString("Allowed concepts for this week and prior weeks:\n")
-		for _, concept := range state.CurrentWeekConcepts {
-			b.WriteString("- " + concept + "\n")
-		}
+	// Include allowed concepts markdown
+	if state.CurrentWeekConcepts != "" {
+		b.WriteString(state.CurrentWeekConcepts)
 		b.WriteString("\n")
 	}
 
