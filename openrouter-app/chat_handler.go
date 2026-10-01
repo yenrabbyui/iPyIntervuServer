@@ -88,6 +88,24 @@ func handleChat(apiKey string, states *agentStateStore, turns *turnStore) http.H
 			}
 		}
 
+		if d5Enabled() {
+			handleD5Chat(chatRunParams{
+				sessionID:   sessionID,
+				turnID:      turnID,
+				turnRec:     turnRec,
+				turnRole:    turnRole,
+				turns:       turns,
+				states:      states,
+				state:       state,
+				req:         req,
+				userMessage: userMessage,
+				apiKey:      apiKey,
+				r:           r,
+				w:           w,
+			}, skipPreChat)
+			return
+		}
+
 		phaseBefore := state.ConversationPhase
 		weekNumberBefore := state.CurrentWeekNumber
 

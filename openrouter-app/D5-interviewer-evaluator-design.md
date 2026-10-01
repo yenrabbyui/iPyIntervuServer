@@ -1,6 +1,6 @@
 # iPyInterVu D5 Design: Interviewer + Evaluator
 
-_Status: proposal · 2026-10-01 · no code changed yet_
+_Status: Phase 1 implemented behind `IPY_ENGINE=d5` · 2026-10-01_
 
 ## 1. Summary
 
@@ -500,9 +500,27 @@ The browser still sends the conversation as today, so the API is unchanged, but 
 
 1. **Phase 0 — quick relief for the current code (optional, about 1 day).** The model reasons by default, and today's requests don't turn it off. Add `reasoning: {enabled: false}` and a `max_tokens` cap, and cut the timeout to 30 s. Check the `body_ok` sizes afterwards. This is not the fix, but it should shorten today's replies while D5 is built.
 2. **Phase 1 — D5 core behind `IPY_ENGINE=d5`.** Build the director moves, the Interviewer, Evaluator briefs, Go grading and the server-owned transcript. Test against the old engine on the staging server (`deploy/staging.sh`).
-3. **Phase 2 — pre-drafted openings, and closing plus results in one reply.** No UI changes.
+3. **Phase 2 — pre-drafted openings.** No UI changes. (Closing plus results in one reply was built in Phase 1.)
 4. **Phase 3 — validate assessment quality.** Replay saved transcripts through the Evaluator and the Go bucket rules. Compare the resulting buckets to instructor judgement on a sample of sessions, and tune the rules.
 5. **Phase 4 — make D5 the default, then delete the retired code and instruction files.**
+
+### 12.1 Phase 1 as built
+
+Phase 1 is in the `d5_*.go` files plus `grading.go`, with tests in `d5_*_test.go` and `grading_test.go`. `d5_smoke_test.go` runs a live interview (`go test -tags smoke -run TestD5Smoke -v`).
+
+Where it differs from the design above, and why:
+
+| Area | Design | Phase 1 | Why |
+| --- | --- | --- | --- |
+| Mode openings | Pre-drafted by the Evaluator | Live Interviewer call at each transition | Pre-drafting is Phase 2 |
+| Evaluator `max_tokens` | 1200 | 3000 | Reasoning tokens count against the cap on some providers |
+| Coaching `max_tokens` | 400 | 500 | Room for strengths, growth areas and actions per mode |
+| Cutting a simulated reply | `findSimulatedStudentIndex` | A line-anchored role-label pattern (`d5SimulatedReplyCut`) | The old pattern would cut prose such as "what I'd like from you: …" |
+| Detecting pasted code | `looksLikeCodeSubmission` | `d5LooksLikeCodeSubmission` | The old check treats any "if"/"for" as code, so a prose decomposition skipped the code request |
+| Vague and repetition counters in Code | Count before and after the paste | Reset at the paste | Pre-paste vague answers would otherwise close the mode right after the paste |
+| Missing `COMPANY:` line | Fall back to "our team" | Intro says "on the team" | Reads naturally |
+| Bug level descriptions | Weekly rubric sections | Read from `D5-bug-rubric-drafts.md` | Until the drafts are reviewed and moved |
+| Old-engine code | — | Untouched, except `handleBootstrap` skips cache priming under D5 | Both engines share the binary |
 
 | Metric | Target |
 | --- | --- |

@@ -34,7 +34,7 @@ func TestSetupRepliesAreServerAuthored(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	handleBootstrap(states)(rec, withSession(httptest.NewRequest(http.MethodPost, "/api/session/bootstrap", strings.NewReader(`{}`))))
+	handleBootstrap(states, "test-key")(rec, withSession(httptest.NewRequest(http.MethodPost, "/api/session/bootstrap", strings.NewReader(`{}`))))
 	var boot bootstrapResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &boot); err != nil || boot.Assistant != setupWelcomeMessage {
 		t.Fatalf("bootstrap = %q (err %v), want fixed welcome", boot.Assistant, err)

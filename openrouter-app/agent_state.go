@@ -87,6 +87,9 @@ type AgentSessionState struct {
 	CachedSystemPrompt string `json:"-"` // Full system prompt (static + week-specific)
 
 	UpdatedAt time.Time `json:"-"`
+
+	// D5 holds the D5 engine's state (d5_session.go); nil under the original engine.
+	D5 *d5Session `json:"-"`
 }
 
 func newAgentSessionState() *AgentSessionState {

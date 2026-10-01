@@ -93,7 +93,11 @@ func handleBootstrap(states *agentStateStore, apiKey string) http.HandlerFunc {
 		applyBootstrapState(state, setupWelcomeMessage)
 		states.set(sessionID, state)
 
-		// Prime base bundle cache in background (async)
+		// Prime base bundle cache in background (async). The D5 engine sends no base bundle.
+		if d5Enabled() {
+			writeJSON(w, http.StatusOK, bootstrapResponse{Assistant: setupWelcomeMessage})
+			return
+		}
 		go func() {
 			baseBundle, err := buildBaseBundle()
 			if err != nil {
