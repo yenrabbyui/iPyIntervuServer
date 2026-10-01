@@ -447,6 +447,20 @@ Hits are logged and passed to the next Evaluator run, which writes them into `IS
 | Provider routing | `provider.sort: "throughput"` (*measured:* p50 1.08 s vs 1.48 s) and `provider.require_parameters: true` | `require_parameters: true` |
 | Prompt order | Static persona block first, dynamic last | Rubric and guide first, transcript last |
 
+### 10.1 Model check results (2026-10-01)
+
+Measured with `tools/modelcheck` against `deepseek/deepseek-v4-flash-0731`, from a development Mac.
+
+| Check | Result | What it means for D5 |
+| --- | --- | --- |
+| Interviewer turn (~1,400 tokens in, reasoning off) | 1.48 s p50, 2.52 s max | Test replies were 15–34 tokens. Warmer ~100-token replies should still take about 2–4 s, well under the 10 s target. |
+| `provider.sort: "throughput"` | 1.08 s p50 vs 1.48 s | A modest gain at no cost; kept in the design (§10). |
+| Reasoning | **On by default**: 68 reasoning tokens on a one-sentence reply. Both `enabled:false` and `effort:none` give 0. | D5 sets `reasoning: {enabled: false}` for the Interviewer. Today's server never turns reasoning off, which partly explains its current slowness (Phase 0). |
+| `max_tokens` | Honoured (60 of 60, finish `length`) | Reply length is reliably bounded. |
+| Stop sequences | **Ignored by one provider (DeepInfra)** | Requests set `provider.require_parameters: true`, and Go cuts simulated student lines from the stream itself (§4). Re-run test 5b to confirm. |
+| Prompt caching | Active on some providers: 1,413 of 1,417 prompt tokens cached | A bonus; static-first prompt order (§10) keeps it possible. |
+| Levels-only call | 1.63 s, correct `LEVELS:` format | Given only dimension names, it labelled an answer about checking AI output as `correctness`/`understanding` and missed `ai_use`. The call now gets the level descriptions and the targeted dimension (§8). |
+
 Usage logging: record `usage.prompt_tokens`, `completion_tokens` and `reasoning_tokens`, plus time-to-first-token, on every call.
 
 ## 11. Code migration
