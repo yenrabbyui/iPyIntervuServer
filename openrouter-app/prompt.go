@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -65,9 +66,12 @@ func prependSystemPrompt(body []byte, prompt string) ([]byte, error) {
 	return json.Marshal(req)
 }
 
-func openRouterHeaders(req *http.Request, apiKey string) {
+func openRouterHeaders(req *http.Request, apiKey string, sessionID string) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if sessionID != "" {
+		req.Header.Set("x-custom-header", sessionID)
+	}
 	if referer := os.Getenv("OPENROUTER_HTTP_REFERER"); referer != "https://aalang.org" {
 		req.Header.Set("HTTP-Referer", referer)
 	}
@@ -92,8 +96,12 @@ func handleBootstrap(states *agentStateStore, apiKey string) http.HandlerFunc {
 		// Prime base bundle cache in background (async)
 		go func() {
 			baseBundle, err := buildBaseBundle()
-			if err == nil {
-				primeCacheWithPrompt(context.Background(), apiKey, baseBundle)
+			if err != nil {
+				log.Printf("[cache] base_bundle_build_failed: %v", err)
+				return
+			}
+			if err := primeCacheWithPrompt(context.Background(), apiKey, baseBundle); err != nil {
+				log.Printf("[cache] base_bundle_prime_failed: %v", err)
 			}
 		}()
 

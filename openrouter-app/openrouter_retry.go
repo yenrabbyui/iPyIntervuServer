@@ -52,12 +52,12 @@ func openRouterRetryDelay(attempt int) time.Duration {
 	return openRouterRetryBase * time.Duration(attempt+1)
 }
 
-func postOpenRouterOnce(ctx context.Context, apiKey string, payload []byte) (*http.Response, error) {
+func postOpenRouterOnce(ctx context.Context, apiKey string, payload []byte, sessionID string) (*http.Response, error) {
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
-	openRouterHeaders(upstream, apiKey)
+	openRouterHeaders(upstream, apiKey, sessionID)
 	return openRouterClient.Do(upstream)
 }
 
@@ -89,7 +89,7 @@ func primeCacheWithPrompt(ctx context.Context, apiKey string, prompt string) err
 		return err
 	}
 
-	resp, err := postOpenRouterOnce(ctx, apiKey, payload)
+	resp, err := postOpenRouterOnce(ctx, apiKey, payload, "")
 	if err != nil {
 		return err
 	}
@@ -100,6 +100,7 @@ func primeCacheWithPrompt(ctx context.Context, apiKey string, prompt string) err
 		log.Printf("[cache] prime_failed status=%d", resp.StatusCode)
 		return errors.New("cache prime failed")
 	}
+	log.Printf("[cache] primed_base_bundle status=%d", resp.StatusCode)
 	return nil
 }
 
@@ -114,7 +115,7 @@ func readOpenRouterBodyWithRetry(ctx context.Context, apiKey string, payload []b
 		attemptStarted := time.Now()
 		logOpenRouterStart(logCtx, attempt)
 
-		resp, err := postOpenRouterOnce(ctx, apiKey, payload)
+		resp, err := postOpenRouterOnce(ctx, apiKey, payload, logCtx.sessionID)
 		if err != nil {
 			lastErr = err
 			logOpenRouterFailure(logCtx, attempt, "connect", err, false, "read_body")

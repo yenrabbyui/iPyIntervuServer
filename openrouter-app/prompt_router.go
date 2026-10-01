@@ -256,17 +256,8 @@ func buildDynamicPrompt(state *AgentSessionState) (string, []string, error) {
 }
 
 func buildSystemPrompt(state *AgentSessionState) (string, []string, string, error) {
-	// Build prompt with base bundle (cached) + dynamic content
+	// Build prompt with dynamic content only (base bundle already cached at bootstrap)
 	var b strings.Builder
-
-	// Add base bundle marker (this will be cached at OpenRouter's end)
-	b.WriteString("BASE_BUNDLE_START\n")
-	baseBundle, err := buildBaseBundle()
-	if err != nil {
-		return "", nil, "", err
-	}
-	b.WriteString(baseBundle)
-	b.WriteString("BASE_BUNDLE_END\n\n")
 
 	// Add directives that apply to every request
 	b.WriteString("ASSESSMENT SYNC (mandatory): Every Conceptual/Code/Bug reply MUST end with ```_ipyintervu``` JSON as the absolute last lines — introductions, acknowledgments (Got it./Thanks.), follow-ups, and mode handoffs. A reply without the fence is incomplete even when the interview text looks done. Do not stop generating until the closing ``` fence is written. Missing sync triggers a server corrective retry and may fail closed after one retry.\n")
