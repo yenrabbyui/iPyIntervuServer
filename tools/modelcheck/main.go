@@ -95,6 +95,8 @@ func main() {
 	// 5: stop sequences cut off a simulated student reply.
 	sim := []message{{Role: "user", Content: "Write a short mock interview transcript. Format each line as 'Interviewer: ...' then 'Student: ...'. Write 4 exchanges."}}
 	all = append(all, call("5 stop=\\nStudent:", sim, map[string]any{"max_tokens": 300, "reasoning": map[string]any{"enabled": false}, "stop": []string{"\nStudent:", "\nCandidate:", "\nYou:"}}))
+	// 5b: same, but only route to providers that support every parameter sent.
+	all = append(all, call("5b stop + require_parameters", sim, map[string]any{"max_tokens": 300, "reasoning": map[string]any{"enabled": false}, "stop": []string{"\nStudent:", "\nCandidate:", "\nYou:"}, "provider": map[string]any{"require_parameters": true}}))
 
 	printTable("Settings checks", all)
 	verdicts(all)
@@ -264,7 +266,7 @@ func printTable(title string, rs []result) {
 func verdicts(rs []result) {
 	byName := map[string]result{}
 	for _, r := range rs {
-		byName[r.name[:1]] = r
+		byName[strings.Fields(r.name)[0]] = r
 	}
 	reasoningOff := func(r result) bool {
 		return r.err == "" && r.usage.CompletionTokensDetails.ReasoningTokens == 0 && r.reasoningLen == 0
@@ -280,6 +282,9 @@ func verdicts(rs []result) {
 	s := byName["5"]
 	fmt.Printf("stop sequence honoured:           %v (finish %s, contains 'Student:' %v)\n",
 		s.err == "" && s.finish == "stop" && !strings.Contains(s.content, "Student:"), s.finish, strings.Contains(s.content, "Student:"))
+	sr := byName["5b"]
+	fmt.Printf("stop + require_parameters:        %v (finish %s, provider %s, contains 'Student:' %v)\n",
+		sr.err == "" && sr.finish == "stop" && !strings.Contains(sr.content, "Student:"), sr.finish, sr.provider, strings.Contains(sr.content, "Student:"))
 	fmt.Println()
 }
 

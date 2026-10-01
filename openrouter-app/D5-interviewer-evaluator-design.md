@@ -132,6 +132,15 @@ sequenceDiagram
 | Last mode closing + results (levels for the final answer, then Go grading) | 1–3 s | < 1 s |
 | First conceptual opening (live, ≤300 tokens) | 4–7 s | 1–2 s |
 
+**Measured 2026-10-01** with `tools/modelcheck` against `deepseek/deepseek-v4-flash-0731`, using a ~1,400-token interviewer prompt with reasoning off:
+
+| Routing | Total time, p50 | Total time, max | Time to first token, p50 | Output speed, p50 |
+| --- | --- | --- | --- | --- |
+| Default | 1.48 s | 2.52 s | 1.30 s | 89 tok/s |
+| `provider.sort: "throughput"` | 1.08 s | 2.05 s | 0.92 s | 125 tok/s |
+
+The test replies were only 15–34 tokens. Warmer 1–2 sentence replies of ~100 tokens should add roughly 1 s at these speeds, keeping turns around 2–4 s. Prefix caching was active on some providers: 1,413 of 1,417 prompt tokens were cached.
+
 The first conceptual opening is the slowest turn. It is the only live generation of a scenario, because there is no previous mode for the Evaluator to draft it in. Canned personas shorten it: the model writes only a one-line company name and domain, the scenario and one question. The server writes the introduction (§4.1).
 
 ## 4. Interviewer call
@@ -142,6 +151,8 @@ The first conceptual opening is the slowest turn. It is the only live generation
 - No fence, no JSON, no headings.
 - `max_tokens: 250`. Raise to 300 for the first opening and 400 for coaching.
 - `stop` sequences for simulated replies: `"\nStudent:"`, `"\nCandidate:"`, `"\nYou:"`, `"\nA:"`.
+    - **Measured:** one provider (DeepInfra) ignored them. The request therefore sets `provider.require_parameters: true`, so OpenRouter routes only to providers that support every parameter sent.
+    - Go also watches the stream itself: when `findSimulatedStudentIndex` matches, it cuts the reply there and cancels the request. Stop sequences are never the only safeguard.
 - Streamed from OpenRouter to Go only. Streaming lets the server enforce the first-token timeout and read the `COMPANY:` line early. The browser receives the complete reply in today's response shape, so the UI is unchanged. Total time is the same either way; only the gradual display would differ, and that would need UI changes.
 
 **Inputs**
@@ -363,7 +374,8 @@ Changes to the existing files:
 - **`grading-rules.md` (new):** Step 2 (bucket rules per mode), Step 3 (overall rating), the Week 1 special case, and worked examples that double as test cases.
 
 **Timing.** Briefs label every answer except the student's final one in each mode, because a brief runs after the reply that answer received. At close, the director makes one small **levels-only call**:
-- input: the rubric dimensions, the last question and the answer;
+- input: the rubric dimensions with their level descriptions, the last question and answer, and **the dimension that question targeted** (known to Go from the move);
+    - *Measured:* given dimension names alone, the test call labelled an answer about checking AI output as `correctness` and `understanding` and missed `ai_use`.
 - output: one `LEVELS:` line, about 30 tokens;
 - reasoning off;
 - timeout 5 s.
@@ -428,11 +440,11 @@ Hits are logged and passed to the next Evaluator run, which writes them into `IS
 | Setting | Interviewer | Evaluator |
 | --- | --- | --- |
 | Model | `deepseek/deepseek-v4-flash-0731` (today's). The same model on a fast provider is optional. | Same model, or a stronger one; its speed isn't user-visible. |
-| Reasoning | Disabled (OpenRouter `reasoning` param). Verify on the Activity page that reasoning tokens are 0. | Enabled, medium effort |
+| Reasoning | `reasoning: {enabled: false}`. *Measured:* both `enabled:false` and `effort:none` give 0 reasoning tokens. Reasoning is **on by default** for this model (68 reasoning tokens on a 1-sentence reply). | Enabled, medium effort |
 | `max_tokens` | 250 (300 for openings, 400 for coaching) | 1200 |
 | `stream` | true (OpenRouter → Go only) | false |
 | Output format | Plain text + `stop` sequences (first opening adds one `COMPANY:` line) | Labelled lines (§5); no `response_format` |
-| Provider routing | `provider.sort: "throughput"` | default |
+| Provider routing | `provider.sort: "throughput"` (*measured:* p50 1.08 s vs 1.48 s) and `provider.require_parameters: true` | `require_parameters: true` |
 | Prompt order | Static persona block first, dynamic last | Rubric and guide first, transcript last |
 
 Usage logging: record `usage.prompt_tokens`, `completion_tokens` and `reasoning_tokens`, plus time-to-first-token, on every call.
@@ -472,7 +484,7 @@ The browser still sends the conversation as today, so the API is unchanged, but 
 
 ## 12. Rollout and measurement
 
-1. **Phase 0 — confirm the hypothesis (about 1 day, current code).** Disable reasoning, set `max_tokens`, and cut the timeout to 30 s. Check the Activity page and the `body_ok` sizes. This is not the fix; it confirms that output length drives latency.
+1. **Phase 0 — quick relief for the current code (optional, about 1 day).** The model reasons by default, and today's requests don't turn it off. Add `reasoning: {enabled: false}` and a `max_tokens` cap, and cut the timeout to 30 s. Check the `body_ok` sizes afterwards. This is not the fix, but it should shorten today's replies while D5 is built.
 2. **Phase 1 — D5 core behind `IPY_ENGINE=d5`.** Build the director moves, the Interviewer, Evaluator briefs, Go grading and the server-owned transcript. Test against the old engine on the staging server (`deploy/staging.sh`).
 3. **Phase 2 — pre-drafted openings, and closing plus results in one reply.** No UI changes.
 4. **Phase 3 — validate assessment quality.** Replay saved transcripts through the Evaluator and the Go bucket rules. Compare the resulting buckets to instructor judgement on a sample of sessions, and tune the rules.
