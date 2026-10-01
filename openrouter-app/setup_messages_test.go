@@ -16,6 +16,11 @@ import (
 func TestSetupRepliesAreServerAuthored(t *testing.T) {
 	var upstreamCalls int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatCompletionRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if isCachePrimeRequest(req) {
+			return
+		}
 		atomic.AddInt32(&upstreamCalls, 1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"role": "assistant",

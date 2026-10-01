@@ -647,6 +647,9 @@ func recordingUpstream(t *testing.T, replies ...string) (*[][]chatMessage, func(
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req chatCompletionRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if isCachePrimeRequest(req) {
+			return
+		}
 		requests = append(requests, req.Messages)
 		content := replies[min(len(requests), len(replies))-1]
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -656,6 +659,12 @@ func recordingUpstream(t *testing.T, replies ...string) (*[][]chatMessage, func(
 	saved := openRouterURL
 	openRouterURL = upstream.URL
 	return &requests, func() { openRouterURL = saved; upstream.Close() }
+}
+
+// isCachePrimeRequest reports the background cache-priming call (primeCacheWithPrompt),
+// which is not part of the interview the tests check.
+func isCachePrimeRequest(req chatCompletionRequest) bool {
+	return len(req.Messages) == 2 && req.Messages[1].Role == "user" && req.Messages[1].Content == "Ready."
 }
 
 func runChatTurn(t *testing.T, states *agentStateStore, messages []chatMessage) string {

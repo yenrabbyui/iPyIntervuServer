@@ -10,6 +10,7 @@
 # own computer (not the server), then open http://localhost:8081 there:
 #   ssh -N -L 8081:127.0.0.1:8081 manager@aalang.org
 # Set STAGING_SSH_HOST to change the host shown in the printed instructions.
+# Staging runs the D5 engine by default; IPY_ENGINE=old ./deploy/staging.sh runs the original one.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +18,7 @@ UNIT="openrouter-staging"
 BIN="/usr/local/bin/openrouter-app-staging"
 PORT="${STAGING_PORT:-8081}"
 SSH_HOST="${STAGING_SSH_HOST:-aalang.org}"
+ENGINE="${IPY_ENGINE:-d5}"
 
 case "${1:-start}" in
   stop)
@@ -41,6 +43,7 @@ BUILD_OUT="$(mktemp)"
 trap 'rm -f "$BUILD_OUT"' EXIT
 
 echo "Branch: $(git rev-parse --abbrev-ref HEAD) ($(git rev-parse --short HEAD)$(git diff --quiet || echo ' + uncommitted changes'))"
+echo "Engine: $ENGINE"
 go test ./...
 ./deploy/build.sh "$BUILD_OUT"
 
@@ -50,12 +53,12 @@ sudo install -m 755 "$BUILD_OUT" "$BIN"
 sudo systemd-run --unit="$UNIT" --uid=openrouter --gid=openrouter \
   -p EnvironmentFile=/etc/openrouter-app/env \
   -E AUTH_PRIVATE_KEY_FILE=/etc/openrouter-app/auth-private-key.pem \
-  -E LISTEN_ADDR=127.0.0.1 -E PORT="$PORT" \
+  -E LISTEN_ADDR=127.0.0.1 -E PORT="$PORT" -E IPY_ENGINE="$ENGINE" \
   "$BIN"
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
-    echo "Staging is up on 127.0.0.1:$PORT (production on 8080 is untouched)."
+    echo "Staging is up on 127.0.0.1:$PORT with engine $ENGINE (production on 8080 is untouched)."
     echo
     echo "To use it, run this in a terminal on your own computer (not this server)"
     echo "and leave it open; it prints nothing while the tunnel is up:"
