@@ -29,7 +29,7 @@ var d5PersonaRoles = map[string]string{
 	modeConceptual: "hiring manager",
 	modeCode:       "software developer",
 	modeBug:        "QA engineer",
-	modeCoaching:   "mentor",
+	modeCoaching:   "recruiter on the HR team",
 }
 
 var d5NamePools = map[string][]string{
@@ -102,6 +102,29 @@ type d5Session struct {
 	VagueAnswers  map[int]bool
 	labelJobs     sync.WaitGroup
 	CodePasted    bool
+	// BugDefect is the Bug snippet's deliberate defect, from the opening's hidden DEFECT
+	// line. Only the Evaluator sees it; the interviewer never does.
+	BugDefect string
+	// Drafts are pre-drafted openings by mode (Phase 2, d5_drafts.go); draftDone closes
+	// when a mode's draft job finishes. Both are guarded by mu.
+	Drafts    map[string]*d5PreparedOpening
+	draftDone map[string]chan struct{}
+	// CodeRequests counts requests for code in Code mode before a paste.
+	CodeRequests int
+	// Answers holds each candidate answer with the question it replied to, so answers the
+	// Evaluator failed to label can be labelled when the mode closes.
+	Answers  map[int]d5Answer
+	Labelled map[int]bool
+	// NoAIAnswers are answers saying the candidate did not use AI; Go labels them
+	// ai_use = competent (the cap), because students are expected to use AI.
+	NoAIAnswers map[int]bool
+}
+
+type d5Answer struct {
+	Mode     string
+	Question string
+	Answer   string
+	Target   string
 }
 
 func newD5Session(sessionID string) *d5Session {
@@ -113,6 +136,9 @@ func newD5Session(sessionID string) *d5Session {
 		Labels:       map[string][]gradeLabel{},
 		Evidence:     map[string][]string{},
 		VagueAnswers: map[int]bool{},
+		Answers:      map[int]d5Answer{},
+		Labelled:     map[int]bool{},
+		NoAIAnswers:  map[int]bool{},
 	}
 }
 
@@ -120,7 +146,30 @@ func (s *d5Session) addLabels(mode string, labels []gradeLabel) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, l := range labels {
-		if dimensionInMode(mode, l.Dimension) && levelRank(l.Level) >= 0 {
+		if !dimensionInMode(mode, l.Dimension) || levelRank(l.Level) < 0 {
+			continue
+		}
+		if l.Dimension == dimAIUse && s.NoAIAnswers[l.AnswerIndex] && l.Source != labelSourceVague {
+			continue // not using AI is already capped at Competent; no labeller overrides it
+		}
+		if l.Dimension == dimCorrectness && l.Level == levelCompetent {
+			// Correctness is pass/fail: code that runs and gives correct output passes.
+			l.Level = levelExceptional
+		}
+		s.Labelled[l.AnswerIndex] = true
+		replaced := false
+		for i, existing := range s.Labels[mode] {
+			if existing.AnswerIndex == l.AnswerIndex && existing.Dimension == l.Dimension {
+				// One label per answer and dimension. A vague answer's label stands;
+				// otherwise the higher level wins, giving the benefit of the doubt.
+				if existing.Source != labelSourceVague && (l.Source == labelSourceVague || levelRank(l.Level) > levelRank(existing.Level)) {
+					s.Labels[mode][i] = l
+				}
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
 			s.Labels[mode] = append(s.Labels[mode], l)
 		}
 	}
@@ -132,6 +181,29 @@ func (s *d5Session) labelsSnapshot() map[string][]gradeLabel {
 	out := map[string][]gradeLabel{}
 	for mode, labels := range s.Labels {
 		out[mode] = append([]gradeLabel(nil), labels...)
+	}
+	return out
+}
+
+// unlabelledAnswers lists the mode's non-vague answers whose targeted dimension has no
+// label yet.
+func (s *d5Session) unlabelledAnswers(mode string) map[int]d5Answer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	targetLabelled := map[int]bool{}
+	for _, l := range s.Labels[mode] {
+		if a, ok := s.Answers[l.AnswerIndex]; ok && a.Target == l.Dimension {
+			targetLabelled[l.AnswerIndex] = true
+		}
+	}
+	out := map[int]d5Answer{}
+	for idx, a := range s.Answers {
+		// An answer still needs a label when its targeted dimension has none, even if the
+		// Evaluator labelled some other dimension (it once labelled a code paste as
+		// understanding, leaving correctness ungraded).
+		if a.Mode == mode && a.Target != "" && !targetLabelled[idx] && !s.VagueAnswers[idx] {
+			out[idx] = a
+		}
 	}
 	return out
 }
@@ -175,8 +247,12 @@ var articleVowelPattern = regexp.MustCompile(`(?i)^[aeiou]`)
 func withArticle(phrase string) string {
 	phrase = strings.TrimSpace(phrase)
 	lower := strings.ToLower(phrase)
-	if phrase == "" || strings.HasPrefix(lower, "a ") || strings.HasPrefix(lower, "an ") || strings.HasPrefix(lower, "the ") {
+	if phrase == "" {
 		return phrase
+	}
+	if strings.HasPrefix(lower, "a ") || strings.HasPrefix(lower, "an ") || strings.HasPrefix(lower, "the ") {
+		// The phrase goes mid-sentence, so "A food-tech company" becomes "a food-tech company".
+		return strings.ToLower(phrase[:1]) + phrase[1:]
 	}
 	if articleVowelPattern.MatchString(phrase) {
 		return "an " + phrase

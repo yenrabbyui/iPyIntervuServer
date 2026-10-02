@@ -28,20 +28,26 @@ func TestGradeModeSpecExamples(t *testing.T) {
 		codePasted bool
 		want       string
 	}{
-		{1, modeConceptual, labelsOf(dimConceptual, c, e, e), false, bucketCompetent},
+		{1, modeConceptual, labelsOf(dimConceptual, c, e, e), false, bucketExceptional},
 		{2, modeConceptual, labelsOf(dimConceptual, nr, nr, c), false, bucketNotReady},
 		{3, modeConceptual, labelsOf(dimConceptual, e, e, e), false, bucketExceptional},
-		{4, modeConceptual, labelsOf(dimConceptual, nr, e, e), false, bucketNotReady},
+		{4, modeConceptual, labelsOf(dimConceptual, nr, e, e), false, bucketExceptional},
+		{19, modeConceptual, labelsOf(dimConceptual, c, c, nr, c), false, bucketCompetent},
+		{20, modeConceptual, labelsOf(dimConceptual, c, e), false, bucketExceptional},
+		{21, modeConceptual, labelsOf(dimConceptual, nr, c), false, bucketCompetent},
 		{5, modeConceptual, nil, false, bucketNotReady},
 		{6, modeBug, labelsOf(dimStrategy, c, e, c), false, bucketCompetent},
+		{22, modeBug, labelsOf(dimStrategy, nr, e, nr, e), false, bucketExceptional},
 		{7, modeBug, labelsOf(dimStrategy, e, e, e, e), false, bucketExceptional},
 		{8, modeCode, codeLabels(dimDecomposition, e, dimCorrectness, e, dimUnderstanding, e), true, bucketExceptional},
 		{9, modeCode, codeLabels(dimDecomposition, e, dimCorrectness, c, dimUnderstanding, e, dimAIUse, e), true, bucketCompetent},
-		{10, modeCode, codeLabels(dimCorrectness, nr, dimDecomposition, e, dimUnderstanding, e, dimAIUse, e), true, bucketNotReady},
+		{10, modeCode, codeLabels(dimCorrectness, nr, dimDecomposition, e, dimUnderstanding, e, dimAIUse, e), true, bucketCompetent},
 		{11, modeCode, codeLabels(dimDecomposition, nr, dimUnderstanding, nr, dimCorrectness, c), true, bucketNotReady},
 		{12, modeCode, codeLabels(dimAIUse, nr, dimDecomposition, e, dimCorrectness, e, dimUnderstanding, e), true, bucketCompetent},
 		{13, modeCode, codeLabels(dimUnderstanding, e, dimUnderstanding, nr, dimDecomposition, c, dimCorrectness, c, dimAIUse, c), true, bucketCompetent},
 		{14, modeCode, codeLabels(dimDecomposition, e), false, bucketNotReady},
+		{23, modeCode, codeLabels(dimDecomposition, c, dimCorrectness, e, dimUnderstanding, c, dimUnderstanding, nr, dimUnderstanding, nr, dimAIUse, e), true, bucketNotReady},
+		{24, modeCode, codeLabels(dimDecomposition, e, dimCorrectness, e, dimUnderstanding, e, dimAIUse, nr), true, bucketCompetent},
 	}
 	for _, tc := range cases {
 		if got := gradeMode(tc.mode, tc.labels, tc.codePasted); got != tc.want {
@@ -106,5 +112,31 @@ func TestNormalizeLevel(t *testing.T) {
 		if got := normalizeLevel(raw); got != want {
 			t.Errorf("normalizeLevel(%q) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+func TestAddLabelsOneLabelPerAnswerHigherWins(t *testing.T) {
+	s := newD5Session("t")
+	s.addLabels(modeCode, []gradeLabel{{Dimension: dimUnderstanding, Level: levelCompetent, AnswerIndex: 6, Source: labelSourceLevels}})
+	s.addLabels(modeCode, []gradeLabel{{Dimension: dimUnderstanding, Level: levelNotReady, AnswerIndex: 6, Source: labelSourceEvaluator}})
+	if got := s.labelsSnapshot()[modeCode]; len(got) != 1 || got[0].Level != levelCompetent {
+		t.Fatalf("labels = %+v, want the higher (competent) label", got)
+	}
+	s.addLabels(modeCode, []gradeLabel{{Dimension: dimUnderstanding, Level: levelExceptional, AnswerIndex: 6, Source: labelSourceEvaluator}})
+	if got := s.labelsSnapshot()[modeCode]; len(got) != 1 || got[0].Level != levelExceptional {
+		t.Fatalf("labels = %+v, want exceptional", got)
+	}
+	s.addLabels(modeConceptual, []gradeLabel{{Dimension: dimConceptual, Level: levelNotReady, AnswerIndex: 2, Source: labelSourceVague}})
+	s.addLabels(modeConceptual, []gradeLabel{{Dimension: dimConceptual, Level: levelExceptional, AnswerIndex: 2, Source: labelSourceEvaluator}})
+	if got := s.labelsSnapshot()[modeConceptual]; len(got) != 1 || got[0].Source != labelSourceVague {
+		t.Fatalf("a vague answer's label must stand, got %+v", got)
+	}
+}
+
+func TestNoAICapsCodeAtCompetent(t *testing.T) {
+	const c, e = levelCompetent, levelExceptional
+	labels := codeLabels(dimDecomposition, e, dimCorrectness, e, dimUnderstanding, e, dimAIUse, c)
+	if got := gradeMode(modeCode, labels, true); got != bucketCompetent {
+		t.Fatalf("all Exceptional but no AI use: got %q, want Competent", got)
 	}
 }

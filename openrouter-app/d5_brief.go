@@ -129,14 +129,68 @@ func parseBrief(text, mode string, answerIndex int) (d5Brief, bool) {
 	return b, b.Next != "" || b.Fallback != ""
 }
 
-// parseLevelsLine finds the LEVELS line in a levels-only reply.
-func parseLevelsLine(text, mode string, answerIndex int) []gradeLabel {
+// parseTargetLevel reads a levels-only reply: one level word, labelled on the targeted
+// dimension. A "dimension=level" reply is accepted too.
+func parseTargetLevel(text, mode, target string, answerIndex int) []gradeLabel {
+	if target == dimCorrectness {
+		switch firstWord(strings.Trim(strings.TrimSpace(text), "*`\"")) {
+		case "works", "working", "works.", "correct", "yes", "pass":
+			return []gradeLabel{{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: answerIndex}}
+		case "broken", "fails", "incorrect", "no", "fail", "wrong":
+			return []gradeLabel{{Dimension: dimCorrectness, Level: levelNotReady, AnswerIndex: answerIndex}}
+		}
+	}
+	if labels := parseLevelsLine(text, mode, answerIndex); len(labels) > 0 {
+		return labels
+	}
 	for _, line := range strings.Split(text, "\n") {
+		level := normalizeLevel(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "LEVEL:")))
+		if level != "" && dimensionInMode(mode, target) {
+			return []gradeLabel{{Dimension: target, Level: level, AnswerIndex: answerIndex}}
+		}
+	}
+	return nil
+}
+
+// parseLevelsLine finds the LEVELS line in a levels-only reply. The model often drops the
+// "LEVELS:" prefix and answers just "conceptual=competent", so a bare pairs line counts too.
+func parseLevelsLine(text, mode string, answerIndex int) []gradeLabel {
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
 		if label, value, ok := splitLabelledLine(line); ok && label == "LEVELS" {
 			return parseLevels(value, mode, answerIndex)
 		}
 	}
+	for _, line := range lines {
+		if labels := parseLevels(strings.Trim(strings.TrimSpace(line), "`*"), mode, answerIndex); len(labels) > 0 {
+			return labels
+		}
+	}
 	return nil
+}
+
+var defectLinePattern = regexp.MustCompile(`(?im)^[ \t>*_-]*DEFECT[*_]*[ \t]*:[ \t]*(.*)$`)
+
+// splitDefectLine removes the hidden "DEFECT: …" line from a Bug opening, wherever it
+// is (the prompt puts it first so the model plans the bug before the code), and returns
+// the opening without it plus the defect ("" when the line is missing).
+func splitDefectLine(opening string) (string, string) {
+	loc := defectLinePattern.FindStringSubmatchIndex(opening)
+	if loc == nil {
+		return strings.TrimSpace(opening), ""
+	}
+	defect := strings.TrimSpace(strings.Trim(opening[loc[2]:loc[3]], "*_`"))
+	rest := strings.TrimSpace(opening[:loc[0]]) + "\n" + strings.TrimSpace(opening[loc[1]:])
+	return strings.TrimSpace(rest), defect
+}
+
+// defectSelfAdmitPattern marks a DEFECT line where the model admits the snippet has no
+// real bug or argues with itself ("…which works—actually the bug is…").
+var defectSelfAdmitPattern = regexp.MustCompile(`(?i)\bactually\b|\bwait\b|no (?:real )?defect|no bug|nothing (?:is )?wrong|is (?:actually )?correct|works (?:fine|correctly)|that's fine|\bhmm\b|let me|instead,? the|the real (?:bug|defect|issue)|but here`)
+
+// d5DefectLooksBad reports a missing, self-admitting or rambling DEFECT line.
+func d5DefectLooksBad(defect string) bool {
+	return defect == "" || defectSelfAdmitPattern.MatchString(defect) || len(defect) > 300
 }
 
 // parseCompanyLine splits the first opening's "COMPANY: name | description" line from

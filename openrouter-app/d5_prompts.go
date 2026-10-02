@@ -122,6 +122,32 @@ func allowedPythonIdeas(week int) string {
 	return strings.Join(ideas, ", ")
 }
 
+// taskLimits states, in plain words, what a Code task or Bug snippet must not need at
+// this week. The scope regexes catch later-week words; these catch later-week ideas a task
+// needs without naming them (a "single or multiple" output needs if/else).
+func taskLimits(week int) []string {
+	var limits []string
+	if week < 3 {
+		limits = append(limits, "The program cannot ask the user for anything; every value is already set in the program.")
+	}
+	if week < 5 {
+		limits = append(limits, "The program does exactly the same steps for every input: no choosing between different outputs or messages (nothing like \"if more than…\", \"otherwise…\", or picking one word or another).")
+	}
+	if week < 6 {
+		limits = append(limits, "It handles one record or one set of values only: no repeating steps and no working through many items.")
+	}
+	if week < 7 {
+		limits = append(limits, "No menus and no repeating until the user quits.")
+	}
+	if week < 8 {
+		limits = append(limits, "No collection of several values stored to work through later.")
+	}
+	if week < 9 {
+		limits = append(limits, "No files: data is typed in by the user or set in the program. Never mention files, batches, exports or stored records.")
+	}
+	return limits
+}
+
 func loopBanApplies(week int) bool {
 	return week >= 7
 }
@@ -189,11 +215,17 @@ func openingInstruction(state *AgentSessionState, mode string, needsCompany bool
 			fmt.Fprintf(&b, "Describe one realistic work situation at the company (2–4 sentences) that connects to %s, then ask one conceptual question about it. No code.", weekFocus(state))
 		}
 	case modeCode:
-		fmt.Fprintf(&b, "Start the coding part of the interview. Do not introduce yourself; that has been done. Present one small programming task from work at the company, framed only as the data available and what is wanted, using exactly these two labels:\nData available: <what information the program gets>\nWhat's wanted: <what the program should produce>\nThe task should exercise %s and be solvable with only these Python ideas: %s. Do not list steps, hints or a solution. Then ask one question: how they would break the problem down before writing any code.",
+		fmt.Fprintf(&b, "Start the coding part of the interview. Do not introduce yourself; that has been done. Present one small programming task as a short story problem from work at the company (2–3 sentences about who needs what and why). Then add these two lines, written in plain everyday words:\nData available: <the information the program will have>\nWhat's wanted: <what the program should produce>\n\"What's wanted\" describes the result the user sees, never how the program works (not \"a loop that…\"). Never write code anywhere in this reply: no Python, no variable names, no function calls such as input() or int(), no code formatting, and no steps, hints or solution. Start directly with the story; no filler such as \"Great\". The task should exercise %s and be solvable with only these Python ideas: %s. Then ask one question: how they would break the problem down before writing any code.",
 			weekFocus(state), allowedPythonIdeas(state.CurrentWeekNumber))
+		if limits := taskLimits(state.CurrentWeekNumber); len(limits) > 0 {
+			b.WriteString("\nThe task must stay within these limits:\n- " + strings.Join(limits, "\n- "))
+		}
 	case modeBug:
-		fmt.Fprintf(&b, "Start the debugging part of the interview. Do not introduce yourself; that has been done. First say in one sentence what a small internal tool at the company is supposed to do. Then show a short Python snippet (5–12 lines) in a ```python block with exactly one defect related to %s. Use only these Python ideas: %s. Do not point out, hint at, or comment on the defect. Then ask one question: how they would go about finding what's wrong.",
+		fmt.Fprintf(&b, "Start the debugging part of the interview. Do not introduce yourself; that has been done. Plan the bug before writing anything else: your reply must begin with one line in exactly this form, which the candidate will never see:\nDEFECT: <the single bug you will put in the code, the line it will be on, and what goes wrong, in one sentence>\nThen start directly with the description; no filler such as \"Great\", \"Sure\" or \"Got it\". Say in one sentence what a small internal tool at the company is supposed to do. Then show a short Python snippet (5–12 lines) in a ```python block with exactly one defect related to %s. The code must not work correctly as written: the defect must make it crash or give a wrong result for some input. There must be only one defect; everything else must be correct. Use only these Python ideas: %s. Write the code so that it really contains the bug named in your DEFECT line. Mark the bug on the line where it is with a trailing comment of the form \"# Bug: <what is wrong on this line>\" (for example: total = total + count / 2  # Bug: divides only count, not the sum). Use no other comments. The candidate is not being tested on spotting the bug; they are being asked how they would go about finding a bug like this one. Then ask one question: how they would go about finding this bug.",
 			weekFocus(state), allowedPythonIdeas(state.CurrentWeekNumber))
+		if limits := taskLimits(state.CurrentWeekNumber); len(limits) > 0 {
+			b.WriteString("\nThe snippet and its purpose must stay within these limits:\n- " + strings.Join(limits, "\n- "))
+		}
 		if defects := bugSuitableDefects(state.CurrentWeekNumber); defects != "" {
 			b.WriteString("\nIdeas for the defect (pick one and adapt it to the company):\n" + defects)
 		}
@@ -232,9 +264,11 @@ How you speak:
   your own question. Never write the candidate's reply.
 - Use only details the candidate actually gave. Don't introduce yourself again,
   restate the scenario, or say you are moving on or wrapping up.
+- Never repeat one of your earlier questions word for word. If the candidate didn't
+  answer it, come at the same point from a different angle.
 `)
 	if !week1 {
-		fmt.Fprintf(&b, "- Use only these Python ideas: %s. Never mention any other Python\n  feature, even to rule it out. Never mention dictionaries.", allowedPythonIdeas(state.CurrentWeekNumber))
+		fmt.Fprintf(&b, "- Use only these Python ideas: %s. Never mention any other Python\n  feature, even to rule it out. Never mention dictionaries. If the candidate uses\n  something not on this list, that is fine; you may ask them what it does.", allowedPythonIdeas(state.CurrentWeekNumber))
 		if loopBanApplies(state.CurrentWeekNumber) {
 			b.WriteString(d5LoopNote)
 		}
@@ -368,6 +402,16 @@ Part of the interview: %s. Topic: %s. Candidate's background: %s.
 		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "\nRubric level descriptions for this part (use them to judge; never quote them):\n%s\n\nGuide for this topic:\n%s\n\n", d5RubricForMode(state.CurrentWeekNumber, mode), weekGuide(state.CurrentWeekNumber))
+	if mode == modeBug && sess.BugDefect != "" {
+		fmt.Fprintf(&b, "The snippet's deliberate defect (it is marked on its line in the snippet the candidate sees), for context only: %s\nRate the debugging strategy itself against the rubric. A sound, systematic strategy is competent or better even if it has not reached this defect yet; never mark an answer down for not finding the defect.\n\n", sess.BugDefect)
+	}
+	b.WriteString(d5Calibration(state) + "\n")
+	b.WriteString("If the candidate uses Python features beyond what they have studied, that is fine as long as they can explain what it does; judge their explanation, never the choice.\n")
+	b.WriteString("Candidates are expected and encouraged to use AI tools; if they say they did not use AI, label ai_use competent (never higher).\n")
+	if mode == modeCode {
+		b.WriteString("Code is assessed for the candidate's understanding, not its quality. correctness is pass/fail: exceptional if the code runs and produces the correct output for the task, not_ready if it errors or gives wrong output; never competent, and ignore style, names, comments, robustness and edge cases. Judge understanding by how well the candidate explains the code, not by how the code is written.\n")
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "Progress: %s\n", progressSentences(state, sess, mode))
 	fmt.Fprintf(&b, "Assess the candidate's latest answer (answer #%d). The question it answered targeted: %s.\n", answerIndex, targetDescription(target))
 	if prev != nil && prev.Mode == mode {
@@ -388,25 +432,65 @@ NEXT: one sentence on what the next question should probe, on new ground, withou
 FALLBACK: one complete interview question the interviewer could ask next
 AVOID: questions already asked that must not be repeated, separated by ;
 RECOMMEND: continue | close (close only when there is enough evidence to judge this part)
-LEVELS: dimension=level for the latest answer only. Dimensions: %s. Levels: not_ready, competent, exceptional. Always label the targeted dimension; add others only if the answer clearly shows them.
+LEVELS: dimension=level for the latest answer only. Dimensions: %s. Levels: not_ready, competent, exceptional. Always include the targeted dimension (%s). Add another dimension only if the answer directly addresses it; never label a dimension the answer did not discuss.
 ISSUES: rule problems in the interviewer's latest reply (more than one question, giving away answers, out-of-scope ideas, teaching), or none
-`, dims)
+`, dims, target)
 	return []chatMessage{
 		{Role: "system", Content: b.String()},
-		{Role: "user", Content: "Interview transcript for this part:\n\n" + transcriptText(sess, mode)},
+		{Role: "user", Content: "Interview transcript for this part:\n\n" + transcriptText(sess, mode) +
+			"\n\n---\nThe transcript ends here. Do not continue the interview or repeat these instructions. Write your private notes about the candidate's latest answer now, in exactly the line format given, starting with QUALITY:"},
 	}
 }
 
-// d5LevelsMessages builds the small levels-only call made at mode close (design §8).
-func d5LevelsMessages(state *AgentSessionState, mode, target, question, answer string) []chatMessage {
-	dims := strings.Join(modeDimensions[mode], ", ")
-	system := fmt.Sprintf(`Label one interview answer against the rubric below. Output exactly one line and nothing else:
-LEVELS: dimension=level; dimension=level
-Dimensions for this part: %s. Levels: not_ready, competent, exceptional.
-The question targeted %s: always label that dimension. Add other dimensions only if the answer clearly shows them.
+// d5VerifyDefectMessages asks whether a Bug snippet really contains a bug: "yes: <the
+// actual bug>" or "no: <what the code does>". Some snippets confidently claimed bugs
+// their code did not have; others had a real bug their DEFECT line described wrongly, so
+// the check names the actual bug rather than verifying the claim.
+func d5VerifyDefectMessages(snippet, defect string) []chatMessage {
+	system := `You check deliberately buggy Python snippets written for a debugging interview. Each should contain one real bug: it crashes (including a syntax error), loops forever, or gives a wrong result for some realistic input, compared with what the description says the tool should do.
+Trace the code exactly as written, line by line. The author's note about the bug is a hint and may be inaccurate.
+Reply with exactly "yes: <the actual bug, its line, and what goes wrong, in one sentence>" if the code really has such a bug, or "no: <what the code actually does>" if it works as described.`
+	return []chatMessage{
+		{Role: "system", Content: system},
+		{Role: "user", Content: "Snippet:\n" + snippet + "\n\nAuthor's note about the bug: " + defect},
+	}
+}
+
+// d5Calibration tells the labellers whom they are judging: an introductory Python
+// student at the selected week, measured against that week's rubric, not a professional.
+// Without it every answer came back Competent.
+func d5Calibration(state *AgentSessionState) string {
+	return fmt.Sprintf(`Calibration: the candidate is an introductory Python student who has studied %s. Judge each answer against the rubric descriptions for this week, not against what a professional developer would say.
+- exceptional: the answer matches the rubric's Exceptional description for this week (clear, complete, specific, with a reason or example). Award it whenever that is met; do not hold it back for perfection or for things the student has not studied.
+- competent: correct and adequate, but missing something the rubric's Exceptional description asks for.
+- not_ready: wrong, missing the point of the question, or too vague to judge.
+If the interviewer's question was not about this week's topic, the answer is not evidence either way: give no label for it, never not_ready.
+AI use: candidates are expected and encouraged to use AI, so never rate an answer lower because they used it; not using AI at all is competent at most. Rate how they used and checked it: not_ready only if they copied without understanding or cannot say how they checked it; competent if they describe their use and some checking; exceptional if they tested deliberately, changed what the AI produced, or used it to deepen their understanding.`, state.SelectedKeyConcept)
+}
+
+// d5LevelsMessages builds the small levels-only call made at mode close (design §8). It
+// asks for one word; the label goes on the targeted dimension. Asked for "dimension=level"
+// the model often answered with the bare level, which was then dropped.
+func d5LevelsMessages(state *AgentSessionState, mode, target, question, answer string, task string) []chatMessage {
+	if target == dimCorrectness {
+		// Correctness is pass/fail: the code only has to run and give the right output.
+		system := fmt.Sprintf(`Decide whether a candidate's Python code works for the task below. It works if it runs without errors and produces the correct output for the task. Ignore style, variable names, comments, robustness and unusual edge cases.
+Reply with exactly one word: works or broken.
+
+Task:
+%s`, task)
+		return []chatMessage{
+			{Role: "system", Content: system},
+			{Role: "user", Content: "Candidate's code:\n" + answer},
+		}
+	}
+	system := fmt.Sprintf(`Rate one interview answer against the rubric below, for this dimension only: %s.
+Reply with exactly one word and nothing else: not_ready, competent or exceptional (or none if the question was not about this week's topic).
+
+%s
 
 Rubric:
-%s`, dims, target, d5RubricForMode(state.CurrentWeekNumber, mode))
+%s`, targetDescription(target), d5Calibration(state), d5RubricForMode(state.CurrentWeekNumber, mode))
 	return []chatMessage{
 		{Role: "system", Content: system},
 		{Role: "user", Content: "Question: " + question + "\nAnswer: " + answer},
@@ -425,42 +509,51 @@ func modeTitle(mode string) string {
 	return mode
 }
 
-// d5CoachingSystemPrompt builds the coaching prompt (design §8): the coach is a mentor at
-// the same company and explains the evidence behind each bucket without changing it.
+// d5CoachingSystemPrompt builds the coaching prompt. The coach is a recruiter on the
+// company's HR team who coaches interview performance: vagueness, wording, structure,
+// strengths and weaknesses in how the candidate answered. Code improvement is out of
+// scope; a separate tool helps with learning the code.
 func d5CoachingSystemPrompt(state *AgentSessionState, sess *d5Session) string {
 	p := sess.Personas[modeCoaching]
-	var b strings.Builder
 	company := sess.CompanyName
 	if company == "" {
 		company = "the company"
 	}
-	fmt.Fprintf(&b, "You are %s, a mentor at %s. The candidate (%s background) just finished a practice interview for an entry-level role and asked for feedback. You are warm, encouraging and specific, and you frame growth around the job, not school. Never mention weeks, courses or homework.\n\n", p.Name, company, state.StudentMajor)
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are %s, %s at %s. The candidate (%s background) just finished a practice job interview and asked for feedback. You coach interview skills: how clearly and specifically they answered, not the technical content. You are warm, direct and encouraging. Never mention weeks, courses or homework.\n\n", p.Name, withArticle(p.Role), company, state.StudentMajor)
 	fmt.Fprintf(&b, "Their results are final; never change or second-guess them:\n- Conceptual: %s\n- Code: %s\n- Bug hunting: %s\n- Overall: %s\n\n", state.ConceptualAssessmentBucket, state.CodeAssessmentBucket, state.BugAssessmentBucket, state.FinalRating)
-	b.WriteString("What the interviewers observed:\n")
+
 	sess.mu.Lock()
 	for _, mode := range []string{modeConceptual, modeCode, modeBug} {
-		evidence := sess.Evidence[mode]
-		var gaps []string
-		if brief := sess.ModeBriefs[mode]; brief != nil {
-			gaps = brief.Gaps
+		var answers []string
+		for _, m := range sess.Transcript {
+			if m.Mode == mode && m.Role == "user" {
+				answers = append(answers, "\""+truncateSummary(m.Content, 400)+"\"")
+			}
 		}
-		if len(evidence) == 0 && len(gaps) == 0 {
+		if len(answers) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s. Shown: %s. Not yet shown: %s.\n", modeTitle(mode), strings.Join(evidence, "; "), strings.Join(gaps, "; "))
-	}
-	sess.mu.Unlock()
-	fmt.Fprintf(&b, "\nGuide for this topic:\n%s\n\n", weekGuide(state.CurrentWeekNumber))
-	if state.isProblemDecompositionWeek() {
-		b.WriteString("Coach on breaking problems into inputs, steps and outputs only.\n")
-	} else {
-		fmt.Fprintf(&b, "Practice suggestions may use only these Python ideas: %s. Never mention dictionaries.", allowedPythonIdeas(state.CurrentWeekNumber))
-		if loopBanApplies(state.CurrentWeekNumber) {
-			b.WriteString(" Suggest condition-driven `while` loops, never `while True`, `break` or `continue` drills.")
+		fmt.Fprintf(&b, "%s part: the candidate's answers, in order:\n%s\n", modeTitle(mode), strings.Join(answers, "\n"))
+		if evidence := sess.Evidence[mode]; len(evidence) > 0 {
+			fmt.Fprintf(&b, "What the interviewers saw: %s.\n", strings.Join(evidence, "; "))
+		}
+		if brief := sess.ModeBriefs[mode]; brief != nil && len(brief.Gaps) > 0 {
+			fmt.Fprintf(&b, "What they did not get to see: %s.\n", strings.Join(brief.Gaps, "; "))
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(`
-In your first reply, for each part that was rated: explain briefly what in their answers led to that rating, name 1–3 strengths and 1–3 things to work on, and suggest 1–2 concrete practice actions. End with one check-in question. In later replies, answer their questions the same way. Never give full solutions to interview tasks. Plain text with short paragraphs or bullets, under 250 words.`)
+	sess.mu.Unlock()
+
+	b.WriteString(`Coach the candidate on how they interviewed:
+- Point out answers that were actually vague or non-committal, quoting their words briefly, and show how a more specific answer would sound in general terms.
+- Point out real wording issues: hedging, filler, unclear structure, answers that didn't address the question asked. Only tentative words are hedging ("maybe", "I guess", "I think", "probably", "sort of", "kind of"); "I will" and "I would" are committed answers, not hedges.
+- Name the strengths you see (up to 3). Name weaknesses only where they really appear in their answers (up to 3); never invent one. If their answers were strong, say so plainly and give stretch tips for an even better interview instead.
+- The conceptual part deliberately asked for no code, so never fault them for not writing or showing code there.
+- Give 1-2 concrete habits for their next interview (for example: answer the question first, then give one example; say how you would check your work).
+- Explain briefly how their answers led to each rating, in interview terms (clarity, specificity, completeness), not technical terms.
+
+Do not coach on code: never suggest code changes, Python features, practice exercises, or how to solve the tasks. If they ask about the code itself, tell them the code-learning tool is the place for that, and bring the conversation back to interviewing.
+In your first reply, cover the points above and end with one check-in question. In later replies, answer their questions the same way. Plain text with short paragraphs or bullets, under 250 words.`)
 	return b.String()
 }

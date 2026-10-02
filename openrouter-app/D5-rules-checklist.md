@@ -14,7 +14,7 @@ _Extracted 2026-10-01 from `env/instructions/*.md`, the directive strings in the
 | Say AI use is allowed (D7) | Yes, in the request for code. |
 | `while True`/`break`/`continue` ban (C6) | Applies in weeks 7, 8 and 9. |
 | Evidence behind buckets (G3) | Explained in coaching, not in the results message. |
-| Coach role (I2) | A mentor at the same company. |
+| Coach role (I2, H3–H5) | A recruiter on the company's HR team who coaches interview skills only: vagueness, wording, strengths, weaknesses. No code improvement or Python practice (a separate tool covers learning the code). This replaces the week-guide practice suggestions in H3–H4. |
 
 All other rows are carried into the design doc as suggested in their Home column.
 

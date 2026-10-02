@@ -31,7 +31,16 @@ type gradeLabel struct {
 	Dimension   string
 	Level       string
 	AnswerIndex int
+	// Source is who set the label. A vague label always stands; between two other labels
+	// for the same answer and dimension the higher level wins (grading-rules.md, Step 1).
+	Source string
 }
+
+const (
+	labelSourceLevels    = "levels"    // levels-only call at mode close
+	labelSourceEvaluator = "evaluator" // Evaluator brief
+	labelSourceVague     = "vague"     // set by Go for a vague answer
+)
 
 func levelRank(level string) int {
 	switch level {
@@ -73,17 +82,29 @@ func dimensionInMode(mode, dimension string) bool {
 	return false
 }
 
-// lowestLevels returns each dimension's lowest label: when a dimension is labelled more
-// than once in a mode, the lowest level wins.
-func lowestLevels(labels []gradeLabel) map[string]string {
-	out := map[string]string{}
+// combinedLevels returns each dimension's level across the mode's answers: the level
+// given most often, with a tie going to the higher level (grading-rules.md, Step 2).
+func combinedLevels(labels []gradeLabel) map[string]string {
+	counts := map[string]map[string]int{}
 	for _, l := range labels {
 		if levelRank(l.Level) < 0 {
 			continue
 		}
-		if prev, ok := out[l.Dimension]; !ok || levelRank(l.Level) < levelRank(prev) {
-			out[l.Dimension] = l.Level
+		if counts[l.Dimension] == nil {
+			counts[l.Dimension] = map[string]int{}
 		}
+		counts[l.Dimension][l.Level]++
+	}
+	out := map[string]string{}
+	for dim, byLevel := range counts {
+		best := ""
+		for _, level := range []string{levelNotReady, levelCompetent, levelExceptional} {
+			// Levels are visited lowest first, so an equal count moves up: ties go higher.
+			if byLevel[level] > 0 && byLevel[level] >= byLevel[best] {
+				best = level
+			}
+		}
+		out[dim] = best
 	}
 	return out
 }
@@ -100,8 +121,7 @@ func bucketForLevel(level string) string {
 }
 
 // gradeMode turns one mode's labels into its bucket (grading-rules.md, Step 2).
-// codePasted only matters for Code mode: closing without pasted code makes correctness
-// Not Ready.
+// codePasted only matters for Code mode: closing without pasted code is Not Ready Yet.
 func gradeMode(mode string, labels []gradeLabel, codePasted bool) string {
 	var kept []gradeLabel
 	for _, l := range labels {
@@ -110,9 +130,9 @@ func gradeMode(mode string, labels []gradeLabel, codePasted bool) string {
 		}
 	}
 	if mode == modeCode && !codePasted {
-		kept = append(kept, gradeLabel{Dimension: dimCorrectness, Level: levelNotReady})
+		return bucketNotReady
 	}
-	levels := lowestLevels(kept)
+	levels := combinedLevels(kept)
 	if len(levels) == 0 {
 		return bucketNotReady
 	}
@@ -123,7 +143,10 @@ func gradeMode(mode string, labels []gradeLabel, codePasted bool) string {
 	case modeBug:
 		return bucketForLevel(levels[dimStrategy])
 	case modeCode:
-		if levels[dimCorrectness] == levelNotReady {
+		// Code assesses understanding of the code, so a candidate who cannot explain it
+		// (understanding Not Ready) is Not Ready Yet. Otherwise Not Ready Yet needs 2+ Not
+		// Ready dimensions; one other weak dimension alone gives Competent.
+		if levels[dimUnderstanding] == levelNotReady {
 			return bucketNotReady
 		}
 		notReady, allExceptional := 0, true

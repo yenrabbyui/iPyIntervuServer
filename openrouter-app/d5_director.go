@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// d5MaxCodeRequests closes Code mode when the candidate has not pasted code after this
+// many requests; grading then treats correctness as Not Ready (grading-rules.md).
+const d5MaxCodeRequests = 3
+
 const (
 	d5ClosingInterview   = "Thanks — that completes the interview."
 	d5CoachingAfterwards = "Coaching opens once the interview is finished."
@@ -17,10 +21,28 @@ const (
 // paste. It returns the rubric dimension the answered question targeted.
 func d5RecordAnswer(state *AgentSessionState, sess *d5Session, msg string) string {
 	mode := state.ActiveMode
+	question := strings.TrimSpace(lastQuestionSentence(sess.lastInterviewerMessage()))
+	if question == "" {
+		question = sess.lastInterviewerMessage()
+	}
 	sess.AnswerIndex++
 	sess.Transcript = append(sess.Transcript, d5Message{Role: "user", Content: msg, Mode: mode})
 	state.ModeUserAnsweredSinceOpening = true
 	target := sess.LastAskTarget
+	noAI := target == dimAIUse && d5SaysNoAI(msg)
+	sess.mu.Lock()
+	sess.Answers[sess.AnswerIndex] = d5Answer{Mode: mode, Question: question, Answer: msg, Target: target}
+	if noAI {
+		sess.NoAIAnswers[sess.AnswerIndex] = true
+	}
+	sess.mu.Unlock()
+	if noAI {
+		// Students are expected to use AI, so not using it caps AI use at Competent: Code
+		// cannot be Exceptional, but this alone never causes Not Ready Yet. Like a vague
+		// answer's label, it stands over any labeller's.
+		sess.addLabels(mode, []gradeLabel{{Dimension: dimAIUse, Level: levelCompetent, AnswerIndex: sess.AnswerIndex, Source: labelSourceVague}})
+		return target
+	}
 
 	if mode == modeCode && !sess.CodePasted && d5LooksLikeCodeSubmission(msg) {
 		sess.CodePasted = true
@@ -31,11 +53,11 @@ func d5RecordAnswer(state *AgentSessionState, sess *d5Session, msg string) strin
 		state.ModeSimilarQuestionAsks = 0
 		return target
 	}
-	if isVagueAnswer(msg) {
+	if d5IsVagueAnswer(msg) {
 		state.ModeVagueAnswers++
 		sess.VagueAnswers[sess.AnswerIndex] = true
 		if target != "" {
-			sess.addLabels(mode, []gradeLabel{{Dimension: target, Level: levelNotReady, AnswerIndex: sess.AnswerIndex}})
+			sess.addLabels(mode, []gradeLabel{{Dimension: target, Level: levelNotReady, AnswerIndex: sess.AnswerIndex, Source: labelSourceVague}})
 		}
 	}
 	return target
@@ -61,6 +83,9 @@ func d5ClosingDue(state *AgentSessionState, sess *d5Session, brief *d5Brief) (bo
 			return true, "question cap"
 		}
 	case modeCode:
+		if !sess.CodePasted && sess.CodeRequests >= d5MaxCodeRequests {
+			return true, "no code after repeated requests"
+		}
 		if sess.CodePasted {
 			post := postCodeQuestions(state)
 			if len(post) >= maxPostCodeQuestions || (len(post) >= 2 && askedAboutAIUse(post)) {
@@ -103,7 +128,7 @@ func d5ChooseMove(state *AgentSessionState, sess *d5Session, brief *d5Brief, msg
 	if due, reason := d5ClosingDue(state, sess, brief); due {
 		return d5Move{Kind: moveCloseMode, Reason: reason}
 	}
-	if isVagueAnswer(msg) && !sess.RedirectUsed[mode] && !(mode == modeCode && state.ModeInterviewStep == interviewStepAwaitingCode) {
+	if d5IsVagueAnswer(msg) && !sess.RedirectUsed[mode] && !(mode == modeCode && state.ModeInterviewStep == interviewStepAwaitingCode) {
 		return d5Move{Kind: moveRedirectVague, Target: sess.LastAskTarget, MaxTokens: d5ReplyMaxTokens,
 			Instruction: "Their answer was too general to assess. Warmly ask for one concrete detail about the situation."}
 	}
@@ -111,9 +136,9 @@ func d5ChooseMove(state *AgentSessionState, sess *d5Session, brief *d5Brief, msg
 	switch mode {
 	case modeCode:
 		if !sess.CodePasted {
-			instruction := "Respond to how they would break the problem down, then ask them to write the Python code for this task and paste it here. Tell them they're welcome to use AI tools to help write it."
+			instruction := "Respond to how they would break the problem down, then ask them to write the Python code for this task and paste it here. Tell them they're encouraged to use AI tools to help write it."
 			if state.ModeInterviewStep == interviewStepAwaitingCode {
-				instruction = "They haven't pasted their code yet. Respond briefly to what they said, then ask again for their Python code for this task, pasted here. AI tools are fine to use."
+				instruction = "They haven't pasted their code yet. Respond briefly to what they said, then ask again for their Python code for this task, pasted here. They're encouraged to use AI tools."
 			}
 			return d5Move{Kind: moveRequestCode, Target: dimCorrectness, MaxTokens: d5ReplyMaxTokens, Instruction: instruction}
 		}
@@ -125,9 +150,9 @@ func d5ChooseMove(state *AgentSessionState, sess *d5Session, brief *d5Brief, msg
 			Instruction: "Their code is in their latest message. Ask about one specific line or choice in their code and why they wrote it that way."}
 	case modeBug:
 		return d5Move{Kind: moveFollowUp, Target: dimStrategy, MaxTokens: d5ReplyMaxTokens,
-			Instruction: followUpInstruction(brief, mode) + " Ask about their debugging process only (how they would find or narrow down the problem); never ask for fixed or corrected code, and don't hint where the bug is."}
+			Instruction: followUpInstruction(brief, mode) + " Ask about their debugging process only (how they would find or narrow down the problem); never ask for fixed or corrected code."}
 	default:
-		instruction := followUpInstruction(brief, mode) + " Keep it conceptual; no code-level details."
+		instruction := followUpInstruction(brief, mode) + " The question must be about " + weekFocus(state) + ", in the context of the scenario; never drift to unrelated topics such as statistics or client communication. Keep it conceptual; no code-level details."
 		if state.isProblemDecompositionWeek() {
 			instruction = "Respond to their answer, then ask one follow-up question about the same scenario; never present a new one."
 			if remaining := decompositionPartsRemaining(state); len(remaining) > 0 {
@@ -178,6 +203,7 @@ func d5ApplyInterviewerReply(state *AgentSessionState, sess *d5Session, move d5M
 	}
 	if move.Kind == moveRequestCode {
 		state.ModeInterviewStep = interviewStepAwaitingCode
+		sess.CodeRequests++
 	}
 	if move.Kind == moveClarify {
 		return // a restated question is not a new question
@@ -228,7 +254,7 @@ func d5FallbackQuestion(state *AgentSessionState, sess *d5Session, brief *d5Brie
 			return "Let me put it another way: " + q
 		}
 	case moveRequestCode:
-		return "When you're ready, please write the Python code for this task and paste it here. You're welcome to use AI tools to help write it."
+		return "When you're ready, please write the Python code for this task and paste it here. You're encouraged to use AI tools to help write it."
 	case moveRedirectVague:
 		return "Could you give me one concrete detail about how you'd handle this situation?"
 	}

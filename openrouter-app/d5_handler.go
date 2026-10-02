@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -25,6 +26,15 @@ func handleD5Chat(p chatRunParams, skipPreChat bool) {
 
 	msg := strings.TrimSpace(p.userMessage)
 	phaseBefore := state.ConversationPhase
+
+	// A session that never got the welcome but arrives with an existing conversation was
+	// lost in a server restart (state is in memory; the login cookie survives). Taking the
+	// student's answer as their major would silently restart the interview.
+	if phaseBefore == phaseAwaitingMajor && !state.StartupPromptShown && d5HasPriorConversation(p.req.Messages) {
+		log.Printf("[d5] session_lost session=%s turn_id=%s", truncateSessionID(p.sessionID), truncateTurnID(p.turnID))
+		d5Respond(p, d5SessionLostMessage)
+		return
+	}
 
 	// Setup is server-authored, exactly as in the original engine.
 	if phaseBefore == phaseAwaitingMajor || phaseBefore == phaseAwaitingKeyConcept {
@@ -72,17 +82,20 @@ func handleD5Chat(p chatRunParams, skipPreChat bool) {
 	clarification := d5AskedForClarification(msg)
 	if !clarification && !skipPreChat {
 		d5RecordAnswer(state, sess, msg)
+		log.Printf("[d5] answer session=%s mode=%s answer_index=%d words=%d vague=%v code=%v",
+			truncateSessionID(p.sessionID), state.ActiveMode, sess.AnswerIndex, len(strings.Fields(msg)),
+			sess.VagueAnswers[sess.AnswerIndex], d5LooksLikeCodeSubmission(msg))
 	} else if clarification && !skipPreChat {
 		sess.Transcript = append(sess.Transcript, d5Message{Role: "user", Content: msg, Mode: state.ActiveMode})
 	}
 	answerIndex, answerTarget := sess.AnswerIndex, sess.LastAskTarget
 
 	move := d5ChooseMove(state, sess, brief, msg, clarification)
-	log.Printf("[d5] move session=%s turn_id=%s mode=%s move=%s reason=%q answer_index=%d",
-		truncateSessionID(p.sessionID), truncateTurnID(p.turnID), state.ActiveMode, move.Kind, move.Reason, answerIndex)
+	log.Printf("[d5] move session=%s turn_id=%s week=%d mode=%s move=%s reason=%q answer_index=%d",
+		truncateSessionID(p.sessionID), truncateTurnID(p.turnID), state.CurrentWeekNumber, state.ActiveMode, move.Kind, move.Reason, answerIndex)
 
 	if move.Kind == moveCloseMode {
-		d5CloseMode(p, sess, msg, answerIndex, answerTarget)
+		d5CloseMode(p, sess)
 		return
 	}
 
@@ -91,6 +104,23 @@ func handleD5Chat(p chatRunParams, skipPreChat bool) {
 	if move.Kind != moveClarify {
 		d5LaunchEvaluator(p, sess, answerIndex, answerTarget)
 	}
+}
+
+const d5SessionLostMessage = "Sorry — the interview server restarted and this interview's progress was lost. Please reload the page to start a new interview."
+
+// d5HasPriorConversation reports a request carrying earlier interview turns: any
+// assistant message, or more than one user message.
+func d5HasPriorConversation(msgs []chatMessage) bool {
+	users := 0
+	for _, m := range msgs {
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" {
+			return true
+		}
+		if m.Role == "user" {
+			users++
+		}
+	}
+	return users > 1
 }
 
 // d5AwaitBrief waits up to 2 s for an in-flight Evaluator brief, then returns the newest
@@ -163,10 +193,13 @@ func d5RunOpening(p chatRunParams, sess *d5Session, prefix string) {
 	state := p.state
 	mode := state.ActiveMode
 	move := d5OpeningMove(state, sess, mode)
-	system := d5InterviewerSystemPrompt(state, sess, mode, move, nil)
-	req := interviewerRequest(p.req.Model, d5InterviewerMessages(system, sess, mode, true), move.MaxTokens)
-	res, err := runInterviewerCall(p.apiKey, p.sessionID, req)
-	d5LogInterviewer(p, move, res, 0)
+	var draft d5OpeningDraft
+	if prepared := d5TakePrepared(p, sess, mode); prepared != nil {
+		draft = d5OpeningDraft{res: d5CallResult{Content: prepared.Content}, verifiedDefect: prepared.Verified, reasoned: true}
+	} else {
+		draft = d5DraftOpening(p, sess, mode, move)
+	}
+	res, err := draft.res, draft.err
 
 	content := strings.TrimSpace(res.Content)
 	if err == nil && move.Kind == moveOpenFirst {
@@ -178,7 +211,21 @@ func d5RunOpening(p chatRunParams, sess *d5Session, prefix string) {
 		}
 		content = rest
 	}
-	if err != nil || content == "" {
+	var defect string
+	if mode == modeBug {
+		content, defect = splitDefectLine(content)
+		// A live (no-reasoning) draft's own DEFECT line was often wrong, so the checker's
+		// description of the actual bug is used. A reasoned draft's own line was reliable
+		// and the checker's occasionally was not, so it is kept.
+		if draft.verifiedDefect != "" && (!draft.reasoned || defect == "") {
+			defect = draft.verifiedDefect
+		}
+		// The marked line is what the candidate sees; it leads, with the description after it.
+		if marked := d5MarkedBugLine(content); marked != "" {
+			defect = "the marked line `" + marked + "`; " + defect
+		}
+	}
+	if err != nil || content == "" || (mode == modeBug && !strings.Contains(content, "```")) {
 		log.Printf("[d5] opening_failed session=%s mode=%s err=%v", truncateSessionID(p.sessionID), mode, err)
 		sess.NeedsOpening = true
 		reply := "Sorry — I couldn't get the next part of the interview ready just now. Please send any message when you're ready to continue."
@@ -188,7 +235,10 @@ func d5RunOpening(p chatRunParams, sess *d5Session, prefix string) {
 		d5Respond(p, reply)
 		return
 	}
-
+	if mode == modeBug {
+		sess.BugDefect = defect
+		log.Printf("[d5] bug_defect session=%s defect=%q", truncateSessionID(p.sessionID), truncateSummary(defect, 200))
+	}
 	sess.NeedsOpening = false
 	sess.Material[mode] = content
 	checked := d5PostCheck(state, sess, mode, move, content, "")
@@ -202,41 +252,186 @@ func d5RunOpening(p chatRunParams, sess *d5Session, prefix string) {
 		opening = prefix + "\n\n" + opening
 	}
 	d5Respond(p, opening)
+	// Openings do not depend on earlier parts, so every later part is drafted now: the
+	// Bug draft then has the whole Conceptual and Code parts to finish.
+	for next := d5NextMode(state, mode); next != ""; next = d5NextMode(state, next) {
+		sess.mu.Lock()
+		_, started := sess.draftDone[next]
+		sess.mu.Unlock()
+		if !started {
+			d5StartDraft(p, sess, next)
+		}
+	}
+}
+
+// d5OpeningProblems checks a Code or Bug opening before it is sent and returns the problems
+// found (feedback for a regeneration) plus, for a Bug snippet the defect check confirmed,
+// its description of the actual bug. A Code task must be a plain-words story problem; a
+// Bug snippet must contain code and a clear hidden DEFECT line and really have a bug;
+// both must pass the word-based scope check.
+func d5OpeningProblems(p chatRunParams, mode, content string, callErr error, withReasoning bool) ([]string, string) {
+	if callErr != nil || (mode != modeCode && mode != modeBug) || strings.TrimSpace(content) == "" {
+		return nil, ""
+	}
+	var problems []string
+	verified := ""
+	if mode == modeBug {
+		var defect string
+		content, defect = splitDefectLine(content)
+		switch {
+		case !strings.Contains(content, "```"):
+			problems = append(problems, "Your previous draft had no code snippet. Begin with the hidden DEFECT line, then describe the tool, show the snippet in a ```python block, and ask your question.")
+		case defect == "":
+			problems = append(problems, "Your previous draft did not begin with the hidden DEFECT line. Begin with \"DEFECT: <the bug, its line, and what goes wrong>\", then write a snippet that really contains that one bug.")
+		case d5DefectLooksBad(defect):
+			problems = append(problems, "Your previous DEFECT line showed the snippet had no clear, real bug. Decide on one real bug first, state it in the DEFECT line in one sentence, then write code that contains exactly that bug.")
+		default:
+			var noBug bool
+			verified, noBug = d5DescribeDefect(p, content, defect, withReasoning)
+			// Only a reasoning check may reject: without reasoning its "no bug" verdicts
+			// were wrong too often to act on.
+			if withReasoning && noBug {
+				problems = append(problems, "Your previous code did not actually contain a bug. Write the snippet again so the code really has the one bug in your DEFECT line.")
+			}
+		}
+	}
+	if mode == modeBug && strings.Contains(content, "```") && !bugMarkerPattern.MatchString(content) {
+		problems = append(problems, "Your previous snippet did not mark the bug. Put a trailing comment \"# Bug: <what is wrong>\" on the line where the bug is.")
+	}
+	if marked := d5MarkedBugLine(content); mode == modeBug && marked != "" && defectSelfAdmitPattern.MatchString(marked) {
+		problems = append(problems, "Your previous \"# Bug:\" comment argued with itself or said the line was fine. Decide on one real bug first, then mark it with one short, certain comment.")
+	}
+	if lower := strings.ToLower(normalizeQuotes(content)); mode == modeCode && (!strings.Contains(lower, "data available") || !strings.Contains(lower, "what's wanted") || !strings.Contains(content, "?")) {
+		problems = append(problems, "Your previous draft was not in the required form. Write a short story problem, then the \"Data available:\" and \"What's wanted:\" lines, then one question about how they would break the problem down.")
+	}
+	if mode == modeCode && d5OpeningGivesCode(content) {
+		problems = append(problems, "Your previous draft contained code. Rewrite it with no code at all: describe the data and the result only in plain words.")
+	}
+	week := p.state.CurrentWeekNumber
+	found := d5ScopeIssues(week, content, "")
+	log.Printf("[d5] opening_check session=%s mode=%s week=%d problems=%d out_of_scope=%q",
+		truncateSessionID(p.sessionID), mode, week, len(problems), found)
+	if len(found) > 0 {
+		problems = append(problems, "Your previous draft used things the candidate has not learned: "+strings.Join(found, ", ")+". Write a different one that uses none of them.")
+	}
+	return problems, verified
+}
+
+// d5OpeningDraft is the result of generating a mode's opening.
+type d5OpeningDraft struct {
+	res            d5CallResult
+	err            error
+	firstContent   string
+	firstProblems  []string
+	retryProblems  []string
+	regenerated    bool
+	keptFirst      bool
+	verifiedDefect string
+	// reasoned is set for a pre-drafted opening, written with reasoning on.
+	reasoned bool
+}
+
+// d5DraftOpening generates a mode's opening, checks it, and regenerates once when it has
+// problems. The regenerated draft is checked too, and the draft with fewer problems is kept
+// (the regenerated one on a tie), so a false alarm cannot swap a good draft for a worse one.
+func d5DraftOpening(p chatRunParams, sess *d5Session, mode string, move d5Move) d5OpeningDraft {
+	state := p.state
+	req := interviewerRequest(p.req.Model, d5InterviewerMessages(d5InterviewerSystemPrompt(state, sess, mode, move, nil), sess, mode, true), move.MaxTokens)
+	res, err := runInterviewerCallWithin(p.apiKey, p.sessionID, req, d5OpeningTimeout)
+	d5LogInterviewer(p, move, res, 0)
+	d := d5OpeningDraft{res: res, err: err, firstContent: res.Content}
+	d.firstProblems, d.verifiedDefect = d5OpeningProblems(p, mode, res.Content, err, false)
+	if len(d.firstProblems) == 0 {
+		return d
+	}
+	retryMove := move
+	retryMove.Instruction += "\n" + strings.Join(d.firstProblems, "\n")
+	retryReq := interviewerRequest(p.req.Model, d5InterviewerMessages(d5InterviewerSystemPrompt(state, sess, mode, retryMove, nil), sess, mode, true), move.MaxTokens)
+	retry, retryErr := runInterviewerCallWithin(p.apiKey, p.sessionID, retryReq, d5OpeningTimeout)
+	if retryErr != nil || strings.TrimSpace(retry.Content) == "" {
+		d.keptFirst = true
+		return d
+	}
+	d5LogInterviewer(p, retryMove, retry, 0)
+	d.regenerated = true
+	var retryVerified string
+	d.retryProblems, retryVerified = d5OpeningProblems(p, mode, retry.Content, nil, false)
+	if len(d.retryProblems) > len(d.firstProblems) {
+		d.keptFirst = true
+		log.Printf("[d5] opening_kept_first session=%s mode=%s first_problems=%d retry_problems=%d",
+			truncateSessionID(p.sessionID), mode, len(d.firstProblems), len(d.retryProblems))
+		return d
+	}
+	d.res, d.err, d.verifiedDefect = retry, nil, retryVerified
+	return d
+}
+
+// d5DescribeDefect asks for an accurate description of the bug in a Bug snippet, for the
+// Evaluator: the model's own DEFECT line was often inaccurate, the check's description
+// usually right. It never rejects a snippet: over 82 live snippets, rejecting on its
+// "no bug" verdicts did not reduce bug-free snippets (12% vs 15%), because without
+// reasoning this model cannot reliably tell whether code is correct. withReasoning is for
+// pre-drafted openings (Phase 2), off the live path. Returns the description ("" when
+// none) and whether the check said the snippet has no bug.
+func d5DescribeDefect(p chatRunParams, snippet, defect string, withReasoning bool) (actual string, noBug bool) {
+	req := defectCheckRequest(p.req.Model, d5VerifyDefectMessages(snippet, defect))
+	timeout := d5LevelsTimeout
+	if withReasoning {
+		req = withReasoningBudget(req)
+		timeout = d5DraftTimeout
+	}
+	res, err := runBackgroundCall(p.apiKey, p.sessionID, req, timeout, 1)
+	text := strings.TrimSpace(res.Content)
+	verdict := strings.ToLower(strings.Trim(text, "\"'*` "))
+	if err == nil && strings.HasPrefix(verdict, "yes") {
+		if i := strings.Index(text, ":"); i >= 0 {
+			actual = strings.TrimSpace(text[i+1:])
+		}
+	}
+	noBug = err == nil && strings.HasPrefix(verdict, "no")
+	log.Printf("[d5] defect_check session=%s reasoning=%v confirmed=%v ms=%d actual=%q err=%v",
+		truncateSessionID(p.sessionID), withReasoning, actual != "", res.Elapsed.Milliseconds(), truncateSummary(actual, 160), err)
+	return actual, noBug
 }
 
 // d5CloseMode closes the active mode: the final answer is labelled by the levels-only
 // call, then either the next mode opens or Go grades and the results are sent.
-func d5CloseMode(p chatRunParams, sess *d5Session, answer string, answerIndex int, answerTarget string) {
+func d5CloseMode(p chatRunParams, sess *d5Session) {
 	state := p.state
 	mode := state.ActiveMode
-	question := d5QuestionBefore(sess, mode)
-	vague := sess.VagueAnswers[answerIndex]
 	final := d5FinalMode(state)
 
-	if !vague && answerTarget != "" {
-		msgs := d5LevelsMessages(state, mode, answerTarget, question, answer)
-		req := levelsRequest(p.req.Model, msgs)
-		job := func() {
+	// Label every answer in the mode that has no label yet: the final answer (briefs run a
+	// turn behind) and any whose Evaluator run failed. Calls run in parallel; the final
+	// mode waits for them because its results go out in this reply.
+	for idx, a := range sess.unlabelledAnswers(mode) {
+		req := levelsRequest(p.req.Model, d5LevelsMessages(state, mode, a.Target, a.Question, a.Answer, sess.Material[mode]))
+		idx, a := idx, a
+		sess.labelJobs.Add(1)
+		go func() {
+			defer sess.labelJobs.Done()
 			res, err := runBackgroundCall(p.apiKey, p.sessionID, req, d5LevelsTimeout, 1)
-			labels := parseLevelsLine(res.Content, mode, answerIndex)
-			log.Printf("[d5] levels_done session=%s mode=%s ms=%d labels=%d err=%v",
-				truncateSessionID(p.sessionID), mode, res.Elapsed.Milliseconds(), len(labels), err)
-			sess.addLabels(mode, labels)
-		}
-		if final {
-			job()
-		} else {
-			sess.labelJobs.Add(1)
-			go func() {
-				defer sess.labelJobs.Done()
-				job()
-			}()
-		}
+			labels := parseTargetLevel(res.Content, mode, a.Target, idx)
+			log.Printf("[d5] levels_done session=%s mode=%s answer_index=%d ms=%d labels=%d err=%v",
+				truncateSessionID(p.sessionID), mode, idx, res.Elapsed.Milliseconds(), len(labels), err)
+			if len(labels) == 0 && err == nil {
+				log.Printf("[d5] levels_unparsed session=%s raw=%q", truncateSessionID(p.sessionID), truncateSummary(res.Content, 200))
+			}
+			sess.addLabels(mode, withSource(labels, labelSourceLevels))
+		}()
 	}
 
 	if final {
 		d5WaitLabelJobs(p, sess)
-		applyD5Grades(state, sess.labelsSnapshot(), sess.CodePasted)
+		labels := sess.labelsSnapshot()
+		for _, m := range []string{modeConceptual, modeCode, modeBug} {
+			var parts []string
+			for _, l := range labels[m] {
+				parts = append(parts, fmt.Sprintf("#%d %s=%s (%s)", l.AnswerIndex, l.Dimension, l.Level, l.Source))
+			}
+			log.Printf("[d5] labels session=%s mode=%s labels=%q", truncateSessionID(p.sessionID), m, strings.Join(parts, ", "))
+		}
+		applyD5Grades(state, labels, sess.CodePasted)
 		d5FinishAssessment(state)
 		log.Printf("[d5] results session=%s conceptual=%q code=%q bug=%q overall=%q",
 			truncateSessionID(p.sessionID), state.ConceptualAssessmentBucket, state.CodeAssessmentBucket, state.BugAssessmentBucket, state.FinalRating)
@@ -295,16 +490,20 @@ func d5LaunchEvaluator(p chatRunParams, sess *d5Session, answerIndex int, answer
 
 	go func() {
 		defer close(done)
-		res, err := runBackgroundCall(p.apiKey, p.sessionID, req, d5EvaluatorTimeout, 2)
+		// One attempt: a retry doubles the wait, and missing labels are filled in at close.
+		res, err := runBackgroundCall(p.apiKey, p.sessionID, req, d5EvaluatorTimeout, 1)
 		brief, ok := parseBrief(res.Content, mode, answerIndex)
 		log.Printf("[d5] evaluator_done session=%s mode=%s answer_index=%d ms=%d out_tokens=%d reasoning_tokens=%d attempts=%d parsed=%v recommend=%s levels=%d err=%v",
 			truncateSessionID(p.sessionID), mode, answerIndex, res.Elapsed.Milliseconds(), res.Usage.CompletionTokens,
 			res.Usage.CompletionTokensDetails.ReasoningTokens, res.Attempts, ok, brief.Recommend, len(brief.Levels), err)
+		if err == nil && !ok {
+			log.Printf("[d5] evaluator_unparsed session=%s raw=%q", truncateSessionID(p.sessionID), truncateSummary(res.Content, 300))
+		}
 		if err != nil || !ok {
 			return
 		}
 		if !vague {
-			sess.addLabels(mode, brief.Levels)
+			sess.addLabels(mode, withSource(brief.Levels, labelSourceEvaluator))
 		}
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
@@ -314,6 +513,15 @@ func d5LaunchEvaluator(p chatRunParams, sess *d5Session, answerIndex int, answer
 		sess.ModeBriefs[mode] = &brief
 		sess.Evidence[mode] = append(sess.Evidence[mode], brief.Evidence...)
 	}()
+}
+
+func withSource(labels []gradeLabel, source string) []gradeLabel {
+	out := make([]gradeLabel, len(labels))
+	for i, l := range labels {
+		l.Source = source
+		out[i] = l
+	}
+	return out
 }
 
 // d5ResultsTurn handles messages after the results: coaching on request, otherwise a
@@ -340,7 +548,7 @@ func d5ResultsTurn(p chatRunParams, sess *d5Session, msg string, skipPreChat boo
 		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.Content})
 	}
 	req := interviewerRequest(p.req.Model, msgs, d5CoachingMaxTokens)
-	res, err := runInterviewerCall(p.apiKey, p.sessionID, req)
+	res, err := runInterviewerCallWithin(p.apiKey, p.sessionID, req, d5CoachingTimeout)
 	d5LogInterviewer(p, d5Move{Kind: moveCoaching}, res, 0)
 
 	reply := strings.TrimSpace(res.Content)

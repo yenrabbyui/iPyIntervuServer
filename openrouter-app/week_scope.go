@@ -36,6 +36,11 @@ var conceptsIntroducedByWeek = map[int][]string{
 		"lower()",
 		"split()",
 		"replace()",
+		"isdigit()",
+		"isalpha()",
+		"isalnum()",
+		"isupper()",
+		"islower()",
 	},
 	5: {
 		"if statements",
@@ -133,7 +138,7 @@ var scopeDetectors = []scopeDetector{
 	{week: 3, name: "input() and type casting",
 		prose: scopePatterns(`\binput\(`, `\buser (?:will |would |should |can )?(?:enters?|types?|inputs?)\b`, `\buser input\b`, `\b(?:prompts?|asks?) the user\b`, `\b(?:int|float|str)\(`, `\btype[- ]?cast`, `\bconver(?:t|ts|ted|ting|sion)\b[^.?!\n]{0,40}\bto (?:an? )?(?:int|integer|float|number|string)s?\b`)},
 	{week: 4, name: "string methods",
-		prose: scopePatterns(`\.(?:strip|lstrip|rstrip|upper|lower|split|replace|title|capitalize|find|startswith|endswith|join)\s*\(`, `\bstring methods?\b`)},
+		prose: scopePatterns(`\.(?:strip|upper|lower|split|replace|isdigit|isalpha|isalnum|isupper|islower)\s*\(`, `\bstring methods?\b`)},
 	{week: 5, name: "if statements and conditionals",
 		prose: scopePatterns(`\bif[- ]statements?\b`, `\bif\s*/\s*else\b`, `\bif-else\b`, `\belif\b`, `\bconditionals?\b`, `\bboolean (?:expression|logic|operator)s?\b`, `\bcomparison operators?\b`),
 		code:  scopePatterns(`(?m)^\s*(?:if|elif|else)\b`, `==|!=|<=|>=`, `\b(?:and|or|not)\b`)},
@@ -148,6 +153,9 @@ var scopeDetectors = []scopeDetector{
 		code:  scopePatterns(`\[`)},
 	{week: 9, name: "files",
 		prose: scopePatterns(`\bfiles?\b`, `\bopen\s*\(`, `\bcsv\b`, `\.(?:read|readline|readlines|write)\s*\(`)},
+	// Not taught in the course, so out of scope in every week.
+	{week: neverInScopeWeek, name: "string methods the course does not teach (title, capitalize, find, startswith, endswith, join, lstrip, rstrip)",
+		prose: scopePatterns(`\.(?:title|capitalize|find|startswith|endswith|join|lstrip|rstrip)\s*\(`)},
 	{week: neverInScopeWeek, name: "dictionaries",
 		prose: scopePatterns(`\bdict(?:ionary|ionaries|s)?\b`, `\bkey[- ]value\b`)},
 }

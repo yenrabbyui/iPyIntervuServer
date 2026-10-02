@@ -11,18 +11,22 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeD5Upstream plays OpenRouter for the D5 engine: streamed Interviewer calls, the
 // Evaluator brief, and the levels-only call, each recognised from its request.
 type fakeD5Upstream struct {
-	mu           sync.Mutex
-	streamed     int
-	evaluator    int
-	levels       int
-	questionSeq  int
-	recommend    string
-	lastRequests []d5Request
+	mu          sync.Mutex
+	streamed    int
+	evaluator   int
+	levels      int
+	questionSeq int
+	recommend   string
+	drafts      int
+	// evaluatorBroken makes every Evaluator call return an unusable brief.
+	evaluatorBroken bool
+	lastRequests    []d5Request
 }
 
 var dimensionsLine = regexp.MustCompile(`Dimensions(?: for this part)?: ([a-z_, ]+)\.`)
@@ -58,7 +62,17 @@ func (f *fakeD5Upstream) handler(t *testing.T) http.HandlerFunc {
 			dims = strings.Split(m[1], ",")[0]
 		}
 		var content string
-		if req.MaxTokens == 60 {
+		if strings.Contains(system, "Start the coding part") || strings.Contains(system, "Start the debugging part") {
+			// A pre-drafted opening (Phase 2): non-streamed, reasoning on.
+			f.mu.Lock()
+			f.drafts++
+			f.questionSeq++
+			n := f.questionSeq
+			f.mu.Unlock()
+			content = f.interviewerReply(system, n)
+		} else if req.MaxTokens == 40 {
+			content = "yes"
+		} else if req.MaxTokens == 60 {
 			f.mu.Lock()
 			f.levels++
 			f.mu.Unlock()
@@ -67,7 +81,13 @@ func (f *fakeD5Upstream) handler(t *testing.T) http.HandlerFunc {
 			f.mu.Lock()
 			f.evaluator++
 			rec := f.recommend
+			broken := f.evaluatorBroken
 			f.mu.Unlock()
+			if broken {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": ""}, "finish_reason": "length"}}})
+				return
+			}
 			if rec == "" {
 				rec = "continue"
 			}
@@ -102,8 +122,8 @@ func (f *fakeD5Upstream) interviewerReply(system string, n int) string {
 	case strings.Contains(system, "Start the coding part"):
 		return "Data available: an order subtotal and whether it is a pickup.\nWhat's wanted: the amount owed.\nHow would you break this problem down before writing any code?"
 	case strings.Contains(system, "Start the debugging part"):
-		return "This script should print the amount owed.\n```python\ntotal = 60\nif total > 50:\n    total = total * 9\nprint(total)\n```\nHow would you go about finding what's wrong here?"
-	case strings.Contains(system, "a mentor at"):
+		return "This script should print the amount owed.\n```python\ntotal = 60\nif total > 50:\n    total = total * 9  # Bug: should multiply by 0.9\nprint(total)\n```\nHow would you go about finding what's wrong here?\nDEFECT: line 3 multiplies by 9 instead of 0.9, so the total is ten times too large."
+	case strings.Contains(system, "You coach interview skills"):
 		return "You showed clear reasoning throughout. Keep practising edge cases. How did the interview feel?"
 	case strings.Contains(system, "paste it here") || strings.Contains(system, "pasted here"):
 		return "That's a clear plan. Please write the Python code for this task and paste it here; AI tools are fine to use."
@@ -189,6 +209,15 @@ func (c *d5TestClient) drainBackgroundJobs() {
 		<-ch
 	}
 	st.D5.labelJobs.Wait()
+	st.D5.mu.Lock()
+	var drafts []chan struct{}
+	for _, d := range st.D5.draftDone {
+		drafts = append(drafts, d)
+	}
+	st.D5.mu.Unlock()
+	for _, d := range drafts {
+		<-d
+	}
 }
 
 func (c *d5TestClient) state() *AgentSessionState {
@@ -238,6 +267,9 @@ func TestD5FullInterviewWeek5(t *testing.T) {
 	if !strings.Contains(reply, "QA engineer") || !strings.Contains(reply, "```python") {
 		t.Fatalf("code close + bug opening = %q", reply)
 	}
+	if strings.Contains(reply, "DEFECT") || !strings.Contains(c.state().D5.BugDefect, "multiplies by 9") {
+		t.Fatalf("hidden DEFECT line leaked or not stored: reply=%q defect=%q", reply, c.state().D5.BugDefect)
+	}
 
 	for i := 0; i < 4; i++ {
 		reply, _ = c.say(fmt.Sprintf("I'd run it with a total of 60 and print total before and after the if line to see where the value goes wrong. Step %d.", i))
@@ -253,7 +285,7 @@ func TestD5FullInterviewWeek5(t *testing.T) {
 	if reply, _ = c.say("thanks"); reply != d5ResultsReminder {
 		t.Fatalf("post-results reply = %q", reply)
 	}
-	if reply, _ = c.say("switch to coach mode"); !strings.Contains(reply, "mentor at Brightline Bakery") {
+	if reply, _ = c.say("switch to coach mode"); !strings.Contains(reply, "recruiter on the HR team at Brightline Bakery") {
 		t.Fatalf("coaching reply = %q", reply)
 	}
 }
@@ -293,5 +325,96 @@ func TestD5ReplayReturnsSameReply(t *testing.T) {
 	again, calls := c.say("5")
 	if again != first || calls != 0 {
 		t.Fatalf("replay made %d calls and returned %q", calls, again)
+	}
+}
+
+func TestD5GradesWhenEvaluatorFails(t *testing.T) {
+	c := newD5TestClient(t)
+	c.upstream.evaluatorBroken = true
+	c.say("Nutrition Science")
+	c.say("1")
+	var reply string
+	for i := 0; i < 6 && c.state().ConversationPhase == phaseAssessmentInProgress; i++ {
+		reply, _ = c.say(fmt.Sprintf("I would list each client's goals and allergies first, then plan meals, then hand them a weekly table. Point %d.", i))
+	}
+	// Every answer is labelled competent by the levels-only backfill at close.
+	if !strings.Contains(reply, "Overall Rating: Competent") {
+		t.Fatalf("results without Evaluator labels = %q", reply)
+	}
+	if c.upstream.levels < 2 {
+		t.Fatalf("expected the close to label all unlabelled answers, got %d levels calls", c.upstream.levels)
+	}
+}
+
+func TestD5CodeModeClosesAfterRepeatedRequests(t *testing.T) {
+	state, sess := d5TestState(5, modeCode)
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimDecomposition}, "How would you break this down?", "Read the subtotal, apply the discount, add the fee, print the total.")
+	for i := 0; i < d5MaxCodeRequests; i++ {
+		move := d5ChooseMove(state, sess, nil, "I'm still thinking about it, one moment please.", false)
+		if move.Kind != moveRequestCode {
+			t.Fatalf("request %d: move = %+v", i+1, move)
+		}
+		askAndAnswer(state, sess, move, "Please paste your Python code here.", "I'm still thinking about it, one moment please.")
+	}
+	if got := d5ChooseMove(state, sess, nil, "still thinking", false); got.Kind != moveCloseMode {
+		t.Fatalf("after %d requests: %+v, want CLOSE_MODE", d5MaxCodeRequests, got)
+	}
+}
+
+func TestD5CoachingPromptIsAboutInterviewing(t *testing.T) {
+	state, sess := d5TestState(5, modeConceptual)
+	sess.CompanyName = "Brightline Bakery"
+	sess.Transcript = append(sess.Transcript, d5Message{Role: "user", Content: "maybe I'd sort of check the numbers", Mode: modeConceptual})
+	prompt := d5CoachingSystemPrompt(state, sess)
+	for _, want := range []string{"recruiter on the HR team at Brightline Bakery", "maybe I'd sort of check the numbers", "Do not coach on code", "code-learning tool"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("coaching prompt missing %q", want)
+		}
+	}
+	if strings.Contains(prompt, "Python ideas") {
+		t.Error("coaching prompt should not offer Python practice")
+	}
+}
+
+func TestD5LostSessionIsNotTakenAsMajor(t *testing.T) {
+	c := newD5TestClient(t)
+	c.turn++
+	body, _ := json.Marshal(chatCompletionRequest{Messages: []chatMessage{
+		{Role: "assistant", Content: "At the dashboard stage, how do we keep a device ID as a label?"},
+		{Role: "user", Content: "Keep it as a string, don't convert it."},
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(string(body)))
+	req = req.WithContext(context.WithValue(req.Context(), sessionIDContextKey, "session-d5"))
+	req.Header.Set(turnIDHeader, "turn-lost")
+	rec := httptest.NewRecorder()
+	handleChat("test-key", c.states, c.turns)(rec, req)
+	if got := extractAssistantContent(rec.Body.Bytes()); got != d5SessionLostMessage {
+		t.Fatalf("reply = %q", got)
+	}
+	if st := c.state(); st.StudentMajor != "" || st.ConversationPhase != phaseAwaitingMajor {
+		t.Fatalf("lost-session message was taken as a major: %+v", st.StudentMajor)
+	}
+}
+
+func TestD5TransitionUsesPreDraftedOpening(t *testing.T) {
+	c := newD5TestClient(t)
+	c.say("Nutrition Science")
+	c.say("5")
+	// Let the background draft of the Code opening finish.
+	time.Sleep(200 * time.Millisecond)
+	c.upstream.mu.Lock()
+	drafted := c.upstream.drafts
+	c.upstream.mu.Unlock()
+	if drafted < 2 {
+		t.Fatalf("want the Code and Bug openings pre-drafted after the first opening, got %d drafts", drafted)
+	}
+	answer := "I would compare the order total against each band threshold, highest first, so every order lands in exactly one band."
+	var reply string
+	var calls int
+	for i := 0; i < 5; i++ {
+		reply, calls = c.say(fmt.Sprintf("%s Detail %d.", answer, i))
+	}
+	if !strings.Contains(reply, "Data available") || calls != 0 {
+		t.Fatalf("transition made %d live interviewer calls (want 0, using the draft): %q", calls, reply)
 	}
 }

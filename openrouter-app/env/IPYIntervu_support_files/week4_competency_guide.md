@@ -6,7 +6,7 @@ Output must be clear and well-formatted. String methods process text. Identify o
 
 ## Key Concepts Overview
 
-print() advanced usage. Formatted strings (f-strings). String methods: .upper(), .lower(), .strip(), .split(). Problem decomposition: output format and text processing needs.
+print() advanced usage. Formatted strings (f-strings). String methods: .upper(), .lower(), .strip(), .split(), .isdigit() (True when every character is a digit; False for "-5" or "3.5"), .isalpha() (all letters), .isalnum() (all letters or digits), .isupper() and .islower() (letter case). Problem decomposition: output format and text processing needs.
 
 ## Simple Example Demonstration
 

@@ -17,10 +17,18 @@ import (
 
 // Timeouts per call type (design §9).
 const (
-	d5InterviewerTotalTimeout      = 12 * time.Second
+	d5InterviewerTotalTimeout = 12 * time.Second
+	// d5CoachingTimeout: a coaching reply runs to ~500 tokens and comes after the results,
+	// outside the 10 s interview target. 12 s cut a live coaching reply short.
+	d5CoachingTimeout = 30 * time.Second
+	// d5OpeningTimeout: openings run to 300-400 tokens and come once per part; 12 s cut
+	// some Bug openings off mid-reply in live tests.
+	d5OpeningTimeout = 20 * time.Second
+	// d5DraftTimeout: pre-drafted openings (Phase 2) use reasoning off the live path.
+	d5DraftTimeout                 = 90 * time.Second
 	d5InterviewerFirstTokenTimeout = 5 * time.Second
 	d5InterviewerRetryWindow       = 4 * time.Second
-	d5EvaluatorTimeout             = 60 * time.Second
+	d5EvaluatorTimeout             = 30 * time.Second
 	d5LevelsTimeout                = 5 * time.Second
 )
 
@@ -83,10 +91,11 @@ func evaluatorRequest(model string, messages []chatMessage) d5Request {
 	return d5Request{
 		Model:    resolveChatModel(model),
 		Messages: messages,
-		// Reasoning tokens count against max_tokens on some providers, so the cap leaves
-		// room for medium-effort reasoning plus the ~300-token brief.
-		MaxTokens: 3000,
-		Reasoning: map[string]any{"effort": "medium"},
+		// Reasoning off: in live runs it took 7-60 s, ignored a reasoning.max_tokens cap,
+		// and used the whole budget, returning empty briefs. Without it the brief is ~300
+		// tokens and arrives within the student's typing time.
+		MaxTokens: 700,
+		Reasoning: map[string]any{"enabled": false},
 		Provider:  map[string]any{"require_parameters": true},
 		Usage:     map[string]any{"include": true},
 	}
@@ -101,6 +110,26 @@ func levelsRequest(model string, messages []chatMessage) d5Request {
 		Provider:  map[string]any{"sort": "throughput", "require_parameters": true},
 		Usage:     map[string]any{"include": true},
 	}
+}
+
+func defectCheckRequest(model string, messages []chatMessage) d5Request {
+	return d5Request{
+		Model:     resolveChatModel(model),
+		Messages:  messages,
+		MaxTokens: 80,
+		Reasoning: map[string]any{"enabled": false},
+		Provider:  map[string]any{"sort": "throughput", "require_parameters": true},
+		Usage:     map[string]any{"include": true},
+	}
+}
+
+// withReasoningBudget turns reasoning on for a background call that is off the live path,
+// with room in max_tokens for the reasoning tokens.
+func withReasoningBudget(req d5Request) d5Request {
+	req.Reasoning = map[string]any{"effort": "medium"}
+	req.MaxTokens += 4000
+	req.Provider = map[string]any{"require_parameters": true}
+	return req
 }
 
 func d5Post(ctx context.Context, apiKey, sessionID string, req d5Request) (*http.Response, error) {
@@ -279,7 +308,11 @@ func d5Complete(ctx context.Context, apiKey, sessionID string, req d5Request) (d
 // runInterviewerCall makes the live call with the §9 policy: 12 s overall, 5 s to the
 // first token, and one retry only when the first attempt failed fast without content.
 func runInterviewerCall(apiKey, sessionID string, req d5Request) (d5CallResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), d5InterviewerTotalTimeout)
+	return runInterviewerCallWithin(apiKey, sessionID, req, d5InterviewerTotalTimeout)
+}
+
+func runInterviewerCallWithin(apiKey, sessionID string, req d5Request, total time.Duration) (d5CallResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), total)
 	defer cancel()
 	var res d5CallResult
 	var err error

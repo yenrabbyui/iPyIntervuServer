@@ -10,6 +10,52 @@ var d5ClarificationPhrases = append([]string{
 	"repeat the question", "say that again", "what are you asking", "which part",
 }, clarificationPhrases...)
 
+// normalizeQuotes turns curly quotes into straight ones so phrase checks match
+// "didn’t" as well as "didn't".
+var quoteReplacer = strings.NewReplacer("\u2019", "'", "\u2018", "'", "\u201c", "\"", "\u201d", "\"")
+
+func normalizeQuotes(s string) string { return quoteReplacer.Replace(s) }
+
+// d5NonAnswers are whole replies that decline to answer.
+var d5NonAnswers = map[string]bool{"no": true, "nothing": true, "pass": true, "skip": true, "?": true, "idk": true, "dunno": true, "no idea": true}
+
+// d5IsVagueAnswer reports a non-committal answer: empty, a bare non-answer ("idk",
+// "pass"), or a short reply built on a hedge ("not sure, maybe a print"). Unlike
+// isVagueAnswer, a short answer is not vague by length alone: "boolean" can be a complete
+// answer, and with lowest-label grading a length rule turned every concise answer into a
+// Not Ready Yet for the whole mode.
+func d5IsVagueAnswer(msg string) bool {
+	trimmed := strings.TrimSpace(normalizeQuotes(msg))
+	if trimmed == "" {
+		return true
+	}
+	if d5LooksLikeCodeSubmission(trimmed) {
+		return false
+	}
+	lower := strings.ToLower(strings.Trim(trimmed, ".!"))
+	if d5NonAnswers[lower] {
+		return true
+	}
+	if containsAny(lower, clarificationPhrases) {
+		return false
+	}
+	return len(strings.Fields(lower)) <= vagueHedgeWordLimit && containsAny(lower, vagueAnswerPhrases)
+}
+
+var (
+	noAIPattern   = regexp.MustCompile(`(?i)^\W*(?:no|nope|nah)\b|\b(?:didn'?t|did not|never|haven'?t|have not|don'?t|do not|wasn'?t|was not)\s+(?:really\s+|actually\s+)?(?:use|used|using|rely|need)\b[^.!?]{0,40}\b(?:ai|a\.i\.|chatgpt|copilot|gemini|claude|tools?)\b|\bwithout (?:any |using )?(?:ai|a\.i\.|tools?)\b|\bno (?:ai|a\.i\.)\b`)
+	usedAIPattern = regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:did\s+|also\s+)?(?:use|used|asked|tried|had)\b[^.!?]{0,30}\b(?:ai|a\.i\.|chatgpt|copilot|gemini|claude)\b|\b(?:asked|used|prompted)\s+(?:an?\s+|the\s+)?(?:ai|chatgpt|copilot|gemini|claude)\b`)
+)
+
+// d5SaysNoAI reports an answer to an AI-use question saying the candidate did not use AI.
+// The rubric only describes students who used AI, so these answers are not graded on
+// ai_use (grading-rules.md). An answer that also says AI was used counts as using it.
+func d5SaysNoAI(msg string) bool {
+	msg = normalizeQuotes(msg)
+	m := regexp.MustCompile(`(?i)\bbut\b[^.!?]*\b(?:ai|chatgpt|copilot)\b`).FindString(msg)
+	return noAIPattern.MatchString(msg) && !usedAIPattern.MatchString(msg) && m == ""
+}
+
 // answerVoicePattern marks a message that commits to an answer ("I'd add a print"), even
 // when phrased as a question.
 var answerVoicePattern = regexp.MustCompile(`(?i)\bi(?:'d| would| will|'ll| think| guess| believe| might)\b`)
@@ -19,7 +65,7 @@ var answerVoicePattern = regexp.MustCompile(`(?i)\bi(?:'d| would| will|'ll| thin
 // a question back to the interviewer. Any "?" no longer counts, so "Would I check the
 // input first? I'd add a print…" stays an answer.
 func d5AskedForClarification(msg string) bool {
-	trimmed := strings.TrimSpace(msg)
+	trimmed := strings.TrimSpace(normalizeQuotes(msg))
 	if trimmed == "" || d5LooksLikeCodeSubmission(trimmed) {
 		return false
 	}
@@ -51,6 +97,106 @@ func d5LooksLikeCodeSubmission(msg string) bool {
 		return true
 	}
 	return lines == 1 && len(strings.Split(strings.TrimSpace(msg), "\n")) == 1 && strings.ContainsAny(msg, "()")
+}
+
+var openingCallPattern = regexp.MustCompile(`\b(?:input|int|float|str|print|len|range|open|round)\s*\(`)
+
+// d5OpeningGivesCode reports a Code opening that shows code. The task must be a story
+// problem in plain words; code in it ("Data available: name = input(...)") hands the
+// candidate part of the solution.
+func d5OpeningGivesCode(reply string) bool {
+	if strings.Contains(reply, "`") || openingCallPattern.MatchString(reply) {
+		return true
+	}
+	for _, line := range strings.Split(reply, "\n") {
+		if pythonStatementLine.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// bugMarkerPattern matches the "# Bug: ..." comment that marks a Bug snippet's defect,
+// either trailing the faulty line or on its own line where a missing line belongs.
+var bugMarkerPattern = regexp.MustCompile(`(?i)#\s*bug\s*:`)
+
+// d5MarkedBugLine returns the snippet line that carries the "# Bug:" marker, trimmed, or "".
+// It is what the candidate sees, so it is the most reliable account of the bug.
+func d5MarkedBugLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if bugMarkerPattern.MatchString(line) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// taughtFunctions and taughtMethods are the calls the course teaches, by the week they
+// are introduced. Interviewer-generated code may use only these (a whitelist; the course
+// teaches no other built-ins). Students may use anything they can explain.
+var taughtFunctions = map[string]int{"print": 2, "input": 3, "int": 3, "float": 3, "str": 3, "range": 6, "len": 8, "open": 9}
+var taughtMethods = map[string]int{
+	"strip": 4, "upper": 4, "lower": 4, "split": 4, "replace": 4,
+	"isdigit": 4, "isalpha": 4, "isalnum": 4, "isupper": 4, "islower": 4,
+	"append": 8, "remove": 8, "sort": 8, "pop": 8, "insert": 8,
+	"read": 9, "readline": 9, "readlines": 9, "write": 9,
+}
+
+var (
+	codeCallPattern     = regexp.MustCompile(`(\.)?\b([A-Za-z_]\w*)\s*\(`)
+	untaughtKeywordCode = regexp.MustCompile(`\b(def|lambda|import|try|except|class|return|yield|global)\b`)
+	controlWords        = map[string]bool{"if": true, "elif": true, "while": true, "for": true, "and": true, "or": true, "not": true, "in": true, "else": true}
+)
+
+// d5UntaughtCalls lists calls and keywords in the code of interviewer-generated text that
+// are not taught by week, e.g. "sorted()", ".title()", "def". Calls that also appear in
+// studentText (the candidate's own messages) are allowed, so the interviewer can ask about
+// the candidate's own choices.
+func d5UntaughtCalls(week int, text, studentText string) []string {
+	code := replyCodeSegments(text)
+	if code == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var found []string
+	add := func(item string) {
+		if !seen[item] {
+			seen[item] = true
+			found = append(found, item)
+		}
+	}
+	for _, m := range codeCallPattern.FindAllStringSubmatch(code, -1) {
+		name := m[2]
+		if m[1] == "." {
+			if w, ok := taughtMethods[name]; (ok && w <= week) || strings.Contains(studentText, "."+name+"(") {
+				continue
+			}
+			add("." + name + "()")
+			continue
+		}
+		if controlWords[name] {
+			continue
+		}
+		if w, ok := taughtFunctions[name]; (ok && w <= week) || regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\s*\(`).MatchString(studentText) {
+			continue
+		}
+		add(name + "()")
+	}
+	for _, m := range untaughtKeywordCode.FindAllStringSubmatch(code, -1) {
+		if !strings.Contains(studentText, m[1]+" ") {
+			add(m[1])
+		}
+	}
+	return found
+}
+
+// d5ScopeIssues combines the word-based scope check with the taught-calls whitelist.
+func d5ScopeIssues(week int, text, studentText string) []string {
+	found := d5OutOfScopeConcepts(week, text)
+	if calls := d5UntaughtCalls(week, text, studentText); len(calls) > 0 {
+		found = append(found, "not taught: "+strings.Join(calls, ", "))
+	}
+	return found
 }
 
 // d5ScopeDetectors are scopeDetectors with two false positives fixed (design §11):
@@ -121,6 +267,20 @@ func promptsBannedLoopControl(week int, reply string, candidateText string) bool
 // answer was right; warm phrasing ("Thanks, that's helpful") is allowed (design §9).
 var correctnessVerdictPattern = regexp.MustCompile(`(?i)\b(?:that's|that is) (?:exactly |absolutely |totally )?(?:right|correct)\b|\bexactly right\b|\byou(?:'re| are) (?:absolutely |exactly |totally )?(?:right|correct)\b|\bspot on\b|\bnailed it\b|(?:^|\n)\s*(?:exactly|correct)\b`)
 
+// leadingVerdictPattern matches a reply that opens by judging the answer ("Exactly.",
+// "That's right!", "Correct —"). The interviewer never says whether an answer was right.
+var leadingVerdictPattern = regexp.MustCompile(`(?i)^(?:exactly|precisely|correct|spot on|that's (?:exactly |absolutely )?(?:right|correct)|you're (?:exactly |absolutely )?(?:right|correct)|right)\s*[.!,—–-]+\s*`)
+
+// stripLeadingVerdict removes an opening verdict and re-capitalizes what follows.
+func stripLeadingVerdict(reply string) string {
+	loc := leadingVerdictPattern.FindStringIndex(reply)
+	if loc == nil || loc[1] >= len(reply) {
+		return reply
+	}
+	rest := reply[loc[1]:]
+	return strings.ToUpper(rest[:1]) + rest[1:]
+}
+
 var (
 	d5PersonaGreetingPattern = regexp.MustCompile(`(?i)^\s*(?:hey|hi|hello|thanks|thank you)[,\s]+(?:` + d5PersonaNamePattern + `)\s*[,.!:—–-]`)
 	d5PersonaAddressPattern  = regexp.MustCompile(`(?i)^\s*(?:so|and|now|ok(?:ay)?)?[,\s]*(?:` + d5PersonaNamePattern + `)\s*[,:—–-]|[,—–-]\s*(?:` + d5PersonaNamePattern + `)\s*[?.!]*\s*$`)
@@ -159,6 +319,11 @@ func d5PostCheck(state *AgentSessionState, sess *d5Session, mode string, move d5
 	res := d5PostCheckResult{Reply: strings.TrimSpace(reply)}
 	add := func(issue string) { res.Issues = append(res.Issues, issue) }
 
+	if stripped := stripLeadingVerdict(res.Reply); stripped != res.Reply {
+		res.Reply = stripped
+		add("opened with a verdict on the answer (removed)")
+	}
+
 	if !move.isOpening() && looksLikeSelfAnsweredQuestion(res.Reply) {
 		res.Reply = strings.TrimSpace(guardQuestionOnlyResponse(res.Reply))
 		add("answered its own question or wrote the candidate's reply")
@@ -182,21 +347,31 @@ func d5PostCheck(state *AgentSessionState, sess *d5Session, mode string, move d5
 	}
 	if !move.isOpening() && move.Kind != moveClarify && move.Kind != moveRequestCode {
 		if q := lastQuestionSentence(res.Reply); q != "" && repeatsRecordedQuestion(state, q) {
-			add("re-asked a question already answered")
+			// A repeated question reads as a glitch and would count toward the repeated-
+			// question limit, closing the mode early. Swap in the fallback question when it
+			// is new; no extra model call.
+			if fallbackQuestion != "" && !repeatsRecordedQuestion(state, fallbackQuestion) {
+				if idx := strings.LastIndex(res.Reply, q); idx >= 0 {
+					res.Reply = strings.TrimSpace(strings.TrimSpace(res.Reply[:idx]) + " " + fallbackQuestion)
+				}
+				add("re-asked a question already asked (replaced with the fallback question)")
+			} else {
+				add("re-asked a question already asked")
+			}
 		}
 	}
 	lower := strings.ToLower(res.Reply)
 	if (mode == modeCode && sess.CodePasted && looksLikeCodeRequest(lower)) || (mode == modeBug && looksLikeCodeRequest(lower)) {
 		add("asked for code again or for fixed code")
 	}
-	if found := d5OutOfScopeConcepts(state.CurrentWeekNumber, res.Reply); len(found) > 0 {
-		add("mentioned out-of-scope ideas: " + strings.Join(found, ", "))
-	}
 	var candidate strings.Builder
 	for _, m := range sess.modeMessages(mode) {
 		if m.Role == "user" {
 			candidate.WriteString(m.Content + "\n")
 		}
+	}
+	if found := d5ScopeIssues(state.CurrentWeekNumber, res.Reply, candidate.String()); len(found) > 0 {
+		add("mentioned out-of-scope ideas: " + strings.Join(found, ", "))
 	}
 	if promptsBannedLoopControl(state.CurrentWeekNumber, res.Reply, candidate.String()) {
 		add("brought up while True, break or continue")

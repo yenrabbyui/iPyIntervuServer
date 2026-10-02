@@ -40,14 +40,14 @@ The Go server owns every flow decision. Target: every student-visible reply in *
 - **Rule decisions** (from `D5-rules-checklist.md`):
     - No instructor-voice exception for education majors; every major gets company interviewers.
     - One "give me a concrete detail" redirect per mode after a vague answer is allowed. The second vague answer closes the mode.
-    - Grading (full spec in `grading-rules.md`): the lowest label wins, Code dimensions with no evidence are ignored, and a vague answer is labelled Not Ready.
+    - Grading (full spec in `grading-rules.md`): the most frequent label wins with ties going **higher**, one label per answer with the **higher** of two labels counting, Code is Not Ready Yet only with 2+ Not Ready dimensions or no pasted code (all revised after live testing to lean high rather than low), Code dimensions with no evidence are ignored, and a vague (non-committal, not merely short) answer is labelled Not Ready.
     - Code mode asks for problem decomposition first, then for the code. The task is framed as the data available and what is wanted (§5).
     - The request for code tells the candidate AI tools may be used.
     - The ban on prompting for `while True`, `break` and `continue` applies in weeks 7, 8 and 9.
     - Evidence behind each bucket is explained in coaching, not in the results message.
-    - The coach is a mentor at the same company.
+    - The coach is a recruiter on the company's HR team who coaches interview skills (vagueness, wording, strengths, weaknesses), never code. A separate tool helps with learning the code.
 - **Personas:**
-    - Roles: hiring manager (Conceptual), software developer (Code), QA engineer (Bug), mentor (Coaching).
+    - Roles: hiring manager (Conceptual), software developer (Code), QA engineer (Bug), recruiter on the HR team (Coaching).
     - One company for the whole session.
     - No pronouns; interviewers speak only in the first person, and prompts never refer to them as he or she.
 - **Grading is done in Go.** The model only labels each answer with rubric levels. Go turns those into mode buckets and the final rating, and builds the results message (§8).
@@ -206,7 +206,7 @@ There is one interviewer per phase, replacing today's pairs (Alex/Julia, Taylor/
 | Conceptual | hiring manager | Alex, Jordan, Priya, Marcus, Elena, Sam |
 | Code | software developer | Taylor, Diego, Mei, Noah, Aisha, Chris |
 | Bug | QA engineer | Riley, Omar, Hannah, Kenji, Lucia, Ben |
-| Coaching | mentor at the company | Samantha, David, Andre, Nina, Leo, Farah |
+| Coaching | recruiter on the HR team | Samantha, David, Andre, Nina, Leo, Farah |
 
 **The server writes each introduction**, for example "Hi, I'm {name}, a {role} at {company_name}, where we {company_domain}." The model never spends tokens introducing the persona.
 
@@ -267,13 +267,17 @@ The Go parser:
 
 **Opening-draft format.** One draft per upcoming mode, generated at the start of the previous mode. The introduction is canned (§4.1), so the draft contains only the material and the first question.
 
-A Code task is framed as **the data available and what is wanted**. It never lists steps, and the first question asks for decomposition only:
+A Code task is a **short story problem** from work at the company, followed by **the data available and what is wanted, in plain words**. It never contains code (no Python, variable names, function calls such as `input()`, or code formatting), never lists steps, and the first question asks for decomposition only:
 
 ```
-DATA: Each order has a subtotal in dollars and whether the customer is picking up in store.
-WANTED: The amount the customer owes: 10% off orders over $50, plus a $4.99 delivery fee unless it's a pickup.
-QUESTION: How would you break this problem down before writing any code?
+Our front desk is rolling out a member check-in screen. When someone types their name and the
+year they were born, the screen should greet them and say how old they turn this year.
+Data available: the member's name and the year they were born.
+What's wanted: a greeting that says how old they turn this year.
+How would you break this problem down before writing any code?
 ```
+
+A Code opening that still contains code is regenerated once (`d5OpeningGivesCode`).
 
 A Bug draft gives the intended behaviour, a snippet with one defect, and a question about how they would find it:
 
@@ -343,14 +347,15 @@ The rules are decided and fully specified in **`grading-rules.md`**. In summary:
 
 | Mode | Dimensions | Bucket |
 | --- | --- | --- |
-| Conceptual | `conceptual` | The lowest label across answers |
-| Code | `decomposition`, `correctness`, `understanding`, `ai_use` | Each dimension takes its lowest label. Dimensions with no evidence are ignored. Not Ready Yet if `correctness` is Not Ready or 2+ dimensions are; Exceptional if all labelled dimensions are Exceptional; otherwise Competent. |
-| Bug | `strategy` only | The lowest label across answers |
+| Conceptual | `conceptual` | The most frequent level across answers; ties go higher |
+| Code | `decomposition`, `correctness`, `understanding`, `ai_use` | No pasted code → Not Ready Yet. Each dimension takes its most frequent label (ties higher). Dimensions with no evidence are ignored. Understanding Not Ready → Not Ready Yet; otherwise Not Ready Yet if 2+ dimensions are Not Ready. Correctness is pass/fail; Exceptional if all labelled dimensions are Exceptional; otherwise Competent. |
+| Bug | `strategy` only | The most frequent level across answers; ties go higher |
 
 Rules that apply in every mode:
-- A vague answer is labelled Not Ready on the dimension its question targeted, so under "lowest wins" the redirect can't raise the grade.
+- A vague answer is labelled Not Ready on the dimension its question targeted; it counts as one vote.
+- One label per answer and dimension: a vague label stands, otherwise the higher of two labels counts.
 - A mode with no labels is Not Ready Yet.
-- No pasted code sets `correctness` to Not Ready.
+- No pasted code makes the Code bucket Not Ready Yet.
 
 The rules are hard-coded, one Go function per mode, and the spec's examples are the table-driven tests.
 
@@ -385,19 +390,20 @@ That takes about 1–3 s on today's provider. For Conceptual and Code it runs in
 The closing text and the results go out as one reply, so the UI is unchanged.
 
 **Coaching** (after results only)
-- Same Interviewer path, with a coaching template. The coach is a mentor at the same company.
+- The coach is a recruiter on the company's HR team who coaches **interview skills**, not code. A separate tool helps students learn the code.
 - **Inputs:**
-    - the buckets;
-    - the Evaluator's evidence and gaps for each mode;
-    - the week's competency guide and key concepts;
-    - allowed concepts.
-- **For each bucket** the coach:
-    - explains the evidence behind it (this replaces any evidence in the results message);
-    - gives 1–3 strengths and 1–3 growth areas;
-    - suggests 1–2 concrete actions;
-    - asks a check-in question.
-- Never changes a bucket. Practice suggestions stay within weeks 1–N, with no dictionaries and the loop note for weeks 7–9. No full solutions.
-- `max_tokens: 400`.
+    - the buckets (final; never changed);
+    - the candidate's own answers in each part;
+    - the Evaluator's evidence and gaps for each part.
+- **The coach:**
+    - points out vague or non-committal answers, quoting the candidate briefly;
+    - points out wording issues: hedging, filler, unclear structure, not answering the question asked;
+    - names 1–3 strengths and 1–3 weaknesses in how they communicated;
+    - gives 1–2 concrete habits for the next interview;
+    - explains each rating in interview terms (clarity, specificity, completeness);
+    - ends the first reply with a check-in question.
+- **Never** suggests code changes, Python features or practice exercises. Questions about the code itself are pointed to the code-learning tool.
+- `max_tokens: 500`.
 
 ## 9. Concurrency, timeouts and failure handling
 
@@ -514,7 +520,15 @@ Where it differs from the design above, and why:
 | --- | --- | --- | --- |
 | Mode openings | Pre-drafted by the Evaluator | Live Interviewer call at each transition | Pre-drafting is Phase 2 |
 | Evaluator `max_tokens` | 1200 | 3000 | Reasoning tokens count against the cap on some providers |
-| Coaching `max_tokens` | 400 | 500 | Room for strengths, growth areas and actions per mode |
+| Coaching `max_tokens` | 400 | 500 | Room for strengths, weaknesses and habits per mode |
+| Evaluator reasoning | Medium effort | **Off**, `max_tokens: 700`, one attempt, 30 s | Live runs: reasoning took 7–60 s and used up to 3,500 tokens, returning empty briefs; a `reasoning.max_tokens: 1024` cap was ignored by the provider. With reasoning off, labelling calls returned sensible levels in ~0.3 s |
+| Vague answers | `isVagueAnswer` (3 words or fewer counts) | `d5IsVagueAnswer`: non-committal only | A correct one-word answer ("boolean") was graded Not Ready |
+| Evaluator prompt ending | Transcript last | An explicit "write your notes now" after the transcript | The model sometimes continued the interview or echoed its instructions |
+| Levels-only output | `LEVELS: dim=level` | One word (`not_ready`/`competent`/`exceptional`) labelled on the targeted dimension; `dim=level` also accepted | Asked for one dimension, the model answered with a bare level, which was dropped, including an Exceptional |
+| Calibration | — | Both labellers are told the candidate is an intro student at the chosen week, judged against that week's rubric, with Exceptional awarded whenever its description is met | Every answer came back Competent. Live check against the rubrics' own example answers (`TestD5Calibration`): 24/27 agreement for both labellers |
+| Backfill at close | Unlabelled answers | Answers whose *targeted* dimension has no label | The Evaluator labelled a code paste as `understanding`, leaving correctness ungraded | The live model drops the `LEVELS:` prefix; before this fix every label was lost and every mode graded Not Ready Yet |
+| Labels for grading | From briefs, plus the final answer at close | At close, every unlabelled answer in the mode gets a levels-only call, in parallel | Grading no longer depends on the Evaluator succeeding |
+| Code mode without a paste | No limit | Closes after 3 requests for code | Stops a request loop; correctness is then Not Ready |
 | Cutting a simulated reply | `findSimulatedStudentIndex` | A line-anchored role-label pattern (`d5SimulatedReplyCut`) | The old pattern would cut prose such as "what I'd like from you: …" |
 | Detecting pasted code | `looksLikeCodeSubmission` | `d5LooksLikeCodeSubmission` | The old check treats any "if"/"for" as code, so a prose decomposition skipped the code request |
 | Vague and repetition counters in Code | Count before and after the paste | Reset at the paste | Pre-paste vague answers would otherwise close the mode right after the paste |
