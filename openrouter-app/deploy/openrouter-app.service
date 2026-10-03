@@ -9,6 +9,7 @@ EnvironmentFile=/etc/openrouter-app/env
 Environment=AUTH_PRIVATE_KEY_FILE=/etc/openrouter-app/auth-private-key.pem
 Environment=LISTEN_ADDR=127.0.0.1
 Environment=PORT=8080
+Environment=IPY_ENGINE=d5
 ExecStart=/usr/local/bin/openrouter-app
 Restart=on-failure
 NoNewPrivileges=true
