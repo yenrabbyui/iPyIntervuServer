@@ -3,7 +3,9 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Bug Hunting level descriptions are read from the reviewed drafts until they move into
@@ -15,7 +17,10 @@ var bugRubricDrafts string
 const d5OpeningMaxTokens = 300
 const d5BugOpeningMaxTokens = 400
 const d5ReplyMaxTokens = 250
-const d5CoachingMaxTokens = 500
+
+// d5CoachingMaxTokens is a safety cap, not the target: the prompt asks for under 250
+// words. 500 cut about one reply in eight off mid-sentence.
+const d5CoachingMaxTokens = 800
 
 // markdownSection returns the "## " section whose title starts with titlePrefix, up to
 // the next "## " heading, or "".
@@ -521,29 +526,9 @@ func d5CoachingSystemPrompt(state *AgentSessionState, sess *d5Session) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are %s, %s at %s. The candidate (%s background) just finished a practice job interview and asked for feedback. You coach interview skills: how clearly and specifically they answered, not the technical content. You are warm, direct and encouraging. Never mention weeks, courses or homework.\n\n", p.Name, withArticle(p.Role), company, state.StudentMajor)
-	fmt.Fprintf(&b, "Their results are final; never change or second-guess them:\n- Conceptual: %s\n- Code: %s\n- Bug hunting: %s\n- Overall: %s\n\n", state.ConceptualAssessmentBucket, state.CodeAssessmentBucket, state.BugAssessmentBucket, state.FinalRating)
+	fmt.Fprintf(&b, "Their results are final; never change them. Report them exactly as given, but never invent a reason for a rating: explain a rating only from what the answers below actually support:\n- Conceptual: %s\n- Code: %s\n- Bug hunting: %s\n- Overall: %s\n\n", state.ConceptualAssessmentBucket, state.CodeAssessmentBucket, state.BugAssessmentBucket, state.FinalRating)
 
-	sess.mu.Lock()
-	for _, mode := range []string{modeConceptual, modeCode, modeBug} {
-		var answers []string
-		for _, m := range sess.Transcript {
-			if m.Mode == mode && m.Role == "user" {
-				answers = append(answers, "\""+truncateSummary(m.Content, 400)+"\"")
-			}
-		}
-		if len(answers) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "%s part: the candidate's answers, in order:\n%s\n", modeTitle(mode), strings.Join(answers, "\n"))
-		if evidence := sess.Evidence[mode]; len(evidence) > 0 {
-			fmt.Fprintf(&b, "What the interviewers saw: %s.\n", strings.Join(evidence, "; "))
-		}
-		if brief := sess.ModeBriefs[mode]; brief != nil && len(brief.Gaps) > 0 {
-			fmt.Fprintf(&b, "What they did not get to see: %s.\n", strings.Join(brief.Gaps, "; "))
-		}
-		b.WriteString("\n")
-	}
-	sess.mu.Unlock()
+	b.WriteString(d5CoachingTranscript(sess))
 
 	b.WriteString(`Coach the candidate on how they interviewed:
 - Point out answers that were actually vague or non-committal, quoting their words briefly, and show how a more specific answer would sound in general terms.
@@ -551,9 +536,70 @@ func d5CoachingSystemPrompt(state *AgentSessionState, sess *d5Session) string {
 - Name the strengths you see (up to 3). Name weaknesses only where they really appear in their answers (up to 3); never invent one. If their answers were strong, say so plainly and give stretch tips for an even better interview instead.
 - The conceptual part deliberately asked for no code, so never fault them for not writing or showing code there.
 - Give 1-2 concrete habits for their next interview (for example: answer the question first, then give one example; say how you would check your work).
-- Explain briefly how their answers led to each rating, in interview terms (clarity, specificity, completeness), not technical terms.
+- Explain briefly how their answers led to each rating, in interview terms (clarity, specificity, completeness), not technical terms. You may say which answers were stronger or weaker, but never cite answer numbers or dimension names.
+
+Accuracy rules:
+- Every answer above is shown in full, next to the question it replied to. Judge an answer only against that question, and only by what it says. Never say an answer was cut off, trailed off or was incomplete (an answer marked as clipped is the only exception).
+- Put words in quotation marks only if they are copied exactly from an answer above. If you are not sure of the exact words, describe the answer instead of quoting it. Never say a candidate said or did something that the answers above do not show.
+- If a part was rated lower than its answers seem to deserve and you cannot find a real weakness in them, do not make one up. Say that the interviewers weighed a few of the answers lower, without guessing which, and give habits that would keep the answers as strong as they are. When asked why a part was rated lower, answer the same way.
+- If the candidate challenges a point, check it against the answers above: say so plainly if you misread them, and keep your view if you read them correctly. Do not simply agree.
+- You do not know the candidate's name; do not address them by any name, and never use your own name or a colleague's as theirs.
 
 Do not coach on code: never suggest code changes, Python features, practice exercises, or how to solve the tasks. If they ask about the code itself, tell them the code-learning tool is the place for that, and bring the conversation back to interviewing.
-In your first reply, cover the points above and end with one check-in question. In later replies, answer their questions the same way. Plain text with short paragraphs or bullets, under 250 words.`)
+In your first reply, cover the points above and end with one check-in question. In later replies, answer their questions the same way. Plain text with short paragraphs or bullets, under 250 words. Finish every sentence.`)
 	return b.String()
+}
+
+// d5CoachingAnswerClip is the longest answer shown to the coach in full. Code pastes can be
+// long; a longer one is clipped with a note, so the coach never mistakes the cut for the
+// candidate trailing off.
+const d5CoachingAnswerClip = 4000
+
+// d5CoachingTranscript lists each part's scenario and every answer in full, next to the
+// question it replied to. Per-answer ratings are left out: the coach quoted them back to
+// candidates and contradicted the overall results. The coach reads these
+// instead of guessing from the candidate's words alone.
+func d5CoachingTranscript(sess *d5Session) string {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	var b strings.Builder
+	for _, mode := range []string{modeConceptual, modeCode, modeBug} {
+		var indexes []int
+		for idx, a := range sess.Answers {
+			if a.Mode == mode {
+				indexes = append(indexes, idx)
+			}
+		}
+		if len(indexes) == 0 {
+			continue
+		}
+		sort.Ints(indexes)
+		fmt.Fprintf(&b, "%s part.\n", modeTitle(mode))
+		if material := strings.TrimSpace(sess.Material[mode]); material != "" {
+			fmt.Fprintf(&b, "What the candidate was given:\n%s\n", material)
+		}
+		for n, idx := range indexes {
+			a := sess.Answers[idx]
+			fmt.Fprintf(&b, "\nQuestion %d: %s\nAnswer %d: %s\n", n+1, a.Question, n+1, d5ClipAnswer(a.Answer))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// d5ClipAnswer returns the answer, clipped at a word boundary with an explicit note when
+// it is longer than d5CoachingAnswerClip.
+func d5ClipAnswer(answer string) string {
+	answer = strings.TrimSpace(answer)
+	if len(answer) <= d5CoachingAnswerClip {
+		return answer
+	}
+	cut := d5CoachingAnswerClip
+	for cut > 0 && !utf8.RuneStart(answer[cut]) {
+		cut--
+	}
+	if i := strings.LastIndexAny(answer[:cut], " \n"); i > cut/2 {
+		cut = i
+	}
+	return answer[:cut] + "\n[clipped here: the rest of this long answer is not shown]"
 }

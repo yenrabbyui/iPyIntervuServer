@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // fakeD5Upstream plays OpenRouter for the D5 engine: streamed Interviewer calls, the
@@ -364,7 +365,7 @@ func TestD5CodeModeClosesAfterRepeatedRequests(t *testing.T) {
 func TestD5CoachingPromptIsAboutInterviewing(t *testing.T) {
 	state, sess := d5TestState(5, modeConceptual)
 	sess.CompanyName = "Brightline Bakery"
-	sess.Transcript = append(sess.Transcript, d5Message{Role: "user", Content: "maybe I'd sort of check the numbers", Mode: modeConceptual})
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimConceptual}, "How would you check the numbers?", "maybe I'd sort of check the numbers")
 	prompt := d5CoachingSystemPrompt(state, sess)
 	for _, want := range []string{"recruiter on the HR team at Brightline Bakery", "maybe I'd sort of check the numbers", "Do not coach on code", "code-learning tool"} {
 		if !strings.Contains(prompt, want) {
@@ -373,6 +374,70 @@ func TestD5CoachingPromptIsAboutInterviewing(t *testing.T) {
 	}
 	if strings.Contains(prompt, "Python ideas") {
 		t.Error("coaching prompt should not offer Python practice")
+	}
+}
+
+func TestD5CoachingPromptShowsFullAnswersWithTheirQuestions(t *testing.T) {
+	state, sess := d5TestState(5, modeConceptual)
+	long := strings.Repeat("I would compare the total against each band, highest first, so every order lands in one band. ", 8) + "The very last sentence matters."
+	if len(long) <= 400 {
+		t.Fatal("test answer must be longer than the old 400-byte cut")
+	}
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimConceptual}, "A bakery sorts orders into bands. How would you decide the band?", long)
+	askAndAnswer(state, sess, d5Move{Kind: moveFollowUp, Target: dimConceptual}, "Why does the order of the checks matter?", "Because the first true branch wins.")
+	sess.addLabels(modeConceptual, []gradeLabel{
+		{Dimension: dimConceptual, Level: levelExceptional, AnswerIndex: 1, Source: labelSourceEvaluator},
+		{Dimension: dimConceptual, Level: levelCompetent, AnswerIndex: 2, Source: labelSourceEvaluator},
+	})
+	prompt := d5CoachingSystemPrompt(state, sess)
+	// Per-answer ratings are internal and must not reach the coach.
+	if strings.Contains(prompt, "rated it") {
+		t.Error("coaching prompt shows per-answer ratings")
+	}
+	if !strings.Contains(prompt, "The very last sentence matters.") {
+		t.Error("a long answer was cut short in the coaching prompt")
+	}
+	for _, want := range []string{
+		"Question 1: How would you decide the band?",
+		"Question 2: Why does the order of the checks matter?",
+		"Answer 2: Because the first true branch wins.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("coaching prompt missing %q", want)
+		}
+	}
+	if strings.Contains(prompt, "...") {
+		t.Error("coaching prompt still contains a truncation marker")
+	}
+}
+
+func TestD5CoachingPromptOmitsInternalEvaluatorNotes(t *testing.T) {
+	state, sess := d5TestState(5, modeConceptual)
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimConceptual}, "How would you decide?", "Highest band first.")
+	sess.Evidence[modeConceptual] = []string{"named the order of checks"}
+	sess.ModeBriefs[modeConceptual] = &d5Brief{Gaps: []string{"edge cases at a boundary"}}
+	prompt := d5CoachingSystemPrompt(state, sess)
+	for _, leak := range []string{"did not get to see", "What the interviewers saw", "named the order of checks", "edge cases at a boundary"} {
+		if strings.Contains(prompt, leak) {
+			t.Errorf("coaching prompt leaks evaluator notes: %q", leak)
+		}
+	}
+}
+
+func TestD5ClipAnswerMarksTheCut(t *testing.T) {
+	short := "print('hello')"
+	if got := d5ClipAnswer(short); got != short {
+		t.Fatalf("short answer changed: %q", got)
+	}
+	long := strings.Repeat("word ", d5CoachingAnswerClip)
+	got := d5ClipAnswer(long)
+	if !strings.Contains(got, "[clipped here") || len(got) > d5CoachingAnswerClip+80 {
+		t.Fatalf("long answer not clipped with a note: len %d", len(got))
+	}
+	// A multi-byte character must never be split by the clip.
+	multi := strings.Repeat("é", d5CoachingAnswerClip)
+	if clipped := d5ClipAnswer(multi); !utf8.ValidString(clipped) {
+		t.Fatal("clip split a multi-byte character")
 	}
 }
 
