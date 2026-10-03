@@ -75,10 +75,25 @@ func loadRuns() ([]*runRecord, error) {
 func cmdReport(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	out := fs.String("out", filepath.Join(resultsDir(), "report.md"), "report file")
+	player := fs.String("player", "", "only count runs played by this model (default: all)")
+	since := fs.String("since", "", "only count runs started at or after this local time, e.g. 2026-10-03T19:30")
 	fs.Parse(args)
 	runs, err := loadRuns()
 	if err != nil {
 		return err
+	}
+	if *since != "" {
+		cutoff, err := time.ParseInLocation("2006-01-02T15:04", *since, time.Local)
+		if err != nil {
+			return fmt.Errorf("-since: %w", err)
+		}
+		var kept []*runRecord
+		for _, r := range runs {
+			if !r.Started.Before(cutoff) {
+				kept = append(kept, r)
+			}
+		}
+		runs = kept
 	}
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
@@ -87,7 +102,7 @@ func cmdReport(args []string) error {
 	status := map[string]int{}
 	for _, r := range runs {
 		status[r.Status]++
-		if r.Status == "judged" {
+		if r.Status == "judged" && (*player == "" || playerOf(r) == *player) {
 			judged = append(judged, r)
 		}
 	}
@@ -102,6 +117,12 @@ func cmdReport(args []string) error {
 	w("run more sessions to narrow them.\n\n")
 	w("Expected levels: not_ready → Not Ready Yet; competent → Competent; exceptional and engineer → Exceptional. ")
 	w("Correctness is pass/fail in the engine, so working code from the competent persona is expected to be labelled exceptional there.\n\n")
+	if *player != "" {
+		w("**Only runs played and judged by %s are counted.**\n\n", *player)
+	}
+	if *since != "" {
+		w("**Only runs started at or after %s are counted.**\n\n", *since)
+	}
 
 	// Runs per persona and week.
 	w("## Judged runs by persona and week\n\nPersona | ")
@@ -149,6 +170,37 @@ func cmdReport(args []string) error {
 		w("%s | %d | %s | %d | %d | %d | %s\n", p, m.n, m, got[levelNotReady], got[levelCompetent], got[levelExceptional], mj)
 	}
 	w("**All** | %d | %s | | | | %s\n", all.n, all, allJudge)
+
+	// Overall rating by the model that played the persona: a weaker player can drift off
+	// the persona's level, so compare players before trusting a persona's figures.
+	w("\n## Overall rating by player model\n\nPersona | Player | Runs | Matched persona | Matched judge's overall | Answers on persona level\n---|---|---|---|---|---\n")
+	for _, p := range personaOrder {
+		byPlayer := map[string][]*runRecord{}
+		var players []string
+		for _, r := range judged {
+			if r.Persona == p {
+				if byPlayer[playerOf(r)] == nil {
+					players = append(players, playerOf(r))
+				}
+				byPlayer[playerOf(r)] = append(byPlayer[playerOf(r)], r)
+			}
+		}
+		sort.Strings(players)
+		for _, pl := range players {
+			var m, mj, fid rate
+			for _, r := range byPlayer[pl] {
+				lvl := bucketLevel(r.Overall)
+				m.add(lvl == r.Expected)
+				mj.add(lvl == r.Judgement.Overall.Level)
+				for _, a := range r.Judgement.Answers {
+					fid.add(a.OnPersona)
+				}
+			}
+			w("%s | %s | %d | %s | %s | %s\n", p, pl, m.n, m, mj, fid)
+		}
+	}
+
+	writeByPersonaAndPlayer(w, judged)
 
 	// Part buckets.
 	w("\n## Part ratings vs persona\n\nPersona | Part | Graded | Matched | Under-rated | Over-rated\n---|---|---|---|---|---\n")
@@ -292,6 +344,75 @@ func cmdReport(args []string) error {
 	}
 	fmt.Printf("%d runs (%d judged). Overall matched persona: %s. Report: %s\n", len(runs), len(judged), all, *out)
 	return nil
+}
+
+// writeByPersonaAndPlayer writes one row per persona and player model: overall and part
+// ratings, per-answer label accuracy, persona fidelity and coach quality, so a player
+// model's slips can be told apart from the engine's.
+func writeByPersonaAndPlayer(w func(string, ...any), judged []*runRecord) {
+	w("\n## By persona and player model\n\n")
+	w("Part ratings and labels are compared with the persona's level; \"labels vs judge\" compares with the judge's level for the answer as given.\n\n")
+	w("Persona | Player | Runs | Overall matched | Got NRY/C/E | Conceptual | Code | Bug | Labels vs persona | Labels vs judge | Over / under (labels) | On persona level | Coach replies OK | Coach runs accurate\n")
+	w("---|---|---|---|---|---|---|---|---|---|---|---|---|---\n")
+	for _, p := range personaOrder {
+		byPlayer := map[string][]*runRecord{}
+		var players []string
+		for _, r := range judged {
+			if r.Persona == p {
+				if byPlayer[playerOf(r)] == nil {
+					players = append(players, playerOf(r))
+				}
+				byPlayer[playerOf(r)] = append(byPlayer[playerOf(r)], r)
+			}
+		}
+		sort.Strings(players)
+		for _, pl := range players {
+			runs := byPlayer[pl]
+			var overall, fid, coachOK, coachAcc rate
+			got := map[string]int{}
+			parts := map[string]*rate{modeConceptual: {}, modeCode: {}, modeBug: {}}
+			var vsPersona, vsJudge dirCount
+			for _, r := range runs {
+				lvl := bucketLevel(r.Overall)
+				got[lvl]++
+				overall.add(lvl == r.Expected)
+				for mode, rt := range parts {
+					if l := bucketLevel(r.Buckets[mode]); l != "" {
+						rt.add(l == r.Expected)
+					}
+				}
+				ja := map[int]answerJudgement{}
+				for _, a := range r.Judgement.Answers {
+					ja[a.Answer] = a
+					fid.add(a.OnPersona)
+				}
+				for _, l := range r.Labels {
+					vsPersona.add(l.Level, expectedFor(r.Expected, l.Dimension))
+					if a, ok := ja[l.AnswerIndex]; ok {
+						vsJudge.add(l.Level, comparable(a.Level, l.Dimension))
+					}
+				}
+				for _, c := range r.Judgement.Coach {
+					coachOK.add(c.Appropriate)
+				}
+				coachAcc.add(r.Judgement.CoachOverall.Accurate)
+			}
+			lp := rate{vsPersona.match, vsPersona.match + vsPersona.under + vsPersona.over}
+			lj := rate{vsJudge.match, vsJudge.match + vsJudge.under + vsJudge.over}
+			w("%s | %s | %d | %s | %d/%d/%d | %s | %s | %s | %s | %s | %d over, %d under | %s | %s | %s\n",
+				p, pl, len(runs), overall, got[levelNotReady], got[levelCompetent], got[levelExceptional],
+				*parts[modeConceptual], *parts[modeCode], *parts[modeBug], lp, lj, vsPersona.over, vsPersona.under, fid, coachOK, coachAcc)
+		}
+	}
+}
+
+// playerOf is the model that played a run; runs from before the player was recorded
+// show as "unrecorded".
+func playerOf(r *runRecord) string {
+	if r.Player == "" {
+		return "unrecorded"
+	}
+	return r.Player
 }
 
 func personaRank(p string) int {

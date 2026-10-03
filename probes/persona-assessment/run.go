@@ -98,11 +98,13 @@ type judgement struct {
 }
 
 type runRecord struct {
-	ID        string            `json:"id"`
-	Persona   string            `json:"persona"`
-	Expected  string            `json:"expected"`
-	Week      int               `json:"week"`
-	Major     string            `json:"major"`
+	ID       string `json:"id"`
+	Persona  string `json:"persona"`
+	Expected string `json:"expected"`
+	Week     int    `json:"week"`
+	Major    string `json:"major"`
+	// Player is the model that played the student and judged the run.
+	Player    string            `json:"player,omitempty"`
 	SessionID string            `json:"sessionId"`
 	Token     string            `json:"token"`
 	Server    string            `json:"server"`
@@ -194,6 +196,7 @@ func cmdStart(args []string) error {
 	persona := fs.String("persona", "", "not_ready, competent, exceptional or engineer")
 	week := fs.Int("week", 0, "week 1-9")
 	major := fs.String("major", "", "student's major (default: random)")
+	player := fs.String("player", "", "model playing and judging this run, e.g. haiku or sonnet")
 	fs.Parse(args)
 
 	expected, ok := personaExpected[*persona]
@@ -225,7 +228,7 @@ func cmdStart(args []string) error {
 	}
 	r := &runRecord{
 		ID:      fmt.Sprintf("%s-w%d-%s-%04x", *persona, *week, time.Now().Format("0102-150405"), rand.IntN(0x10000)),
-		Persona: *persona, Expected: expected, Week: *week, Major: *major,
+		Persona: *persona, Expected: expected, Week: *week, Major: *major, Player: *player,
 		SessionID: sessionID, Token: c.token, Server: info.Base, LogPath: info.LogPath,
 		Started: time.Now(), Status: "in_progress",
 		History: []chatMessage{{Role: "user", Content: "start"}, {Role: "assistant", Content: welcome}},

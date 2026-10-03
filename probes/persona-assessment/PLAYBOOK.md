@@ -27,7 +27,7 @@ go build -o probe .
 
 ## Playing one run
 
-1. `./probe start -persona <persona> -week <1-9>` prints the run ID, the files to read, and the interviewer's opening.
+1. `./probe start -persona <persona> -week <1-9> -player <model>` (the model playing, e.g. `haiku` or `sonnet`) prints the run ID, the files to read, and the interviewer's opening.
 2. Read the persona file and the week's rubric. Read the key-concepts file too if the persona is a student, so you know what the course has covered.
 3. Answer every interviewer message in persona, one message at a time:
    ```
@@ -86,7 +86,9 @@ Judge only after the coaching. Do it as an impartial assessor: grade what the st
 ## Report
 
 ```
-./probe report        # writes results/report.md
+./probe report                 # writes results/report.md
+./probe report -player sonnet  # only runs played by one model
+./probe report -since 2026-10-03T19:30  # only runs started after a change
 ```
 
 The report covers overall and part ratings against each persona, per-answer label accuracy by dimension (against the persona and against the judge), persona fidelity, coach-mode quality with the issues counted, a list of every engine/judge disagreement, and accuracy by week.
