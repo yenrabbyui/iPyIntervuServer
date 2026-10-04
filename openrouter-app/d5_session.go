@@ -185,31 +185,36 @@ func (s *d5Session) labelsSnapshot() map[string][]gradeLabel {
 	return out
 }
 
-// withoutUnaskedAIUse drops the AI-use labels the Evaluator gave answers that were not
-// replies to the AI-use question (the code itself, an explanation of a line). The prompt
-// tells the Evaluator not to label a dimension an answer did not discuss, but it still
-// did, and those labels (mostly Competent or Not Ready, since the answer said nothing about
-// AI) outvoted the one label from the real AI-use question and held strong candidates'
-// Code part below Exceptional. When no answer to the AI-use question was labelled, the
-// others are kept, since they may be the only evidence. It returns the labels to grade and
-// the ones dropped.
-func (s *d5Session) withoutUnaskedAIUse(labels map[string][]gradeLabel) (map[string][]gradeLabel, []gradeLabel) {
+// withoutOffTargetLabels drops Code labels the Evaluator gave answers that were not replies
+// to that dimension's question. The prompt tells the Evaluator not to label a dimension an
+// answer did not discuss, but it still did: AI use on the code itself, decomposition on an
+// explanation of a line, correctness or understanding on the planning answer before any code
+// existed. Those labels (mostly Competent or Not Ready, since the answer said nothing about
+// the dimension) outvoted the one label from the real question and held strong candidates'
+// Code part below Exceptional.
+//
+// A label is dropped when its dimension has a label from its own question and either the
+// dimension is AI use or decomposition, or the label is on the planning answer. When no
+// answer to the dimension's own question was labelled, the labels are kept, since they may
+// be the only evidence. Understanding and correctness labels from later answers are kept:
+// dropping those as well made ratings less accurate in replays of recorded runs.
+// It returns the labels to grade and the ones dropped.
+func (s *d5Session) withoutOffTargetLabels(labels map[string][]gradeLabel) (map[string][]gradeLabel, []gradeLabel) {
 	code := labels[modeCode]
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	asked := false
+	asked := map[string]bool{}
 	for _, l := range code {
-		if l.Dimension == dimAIUse && s.Answers[l.AnswerIndex].Target == dimAIUse {
-			asked = true
-			break
+		if s.Answers[l.AnswerIndex].Target == l.Dimension {
+			asked[l.Dimension] = true
 		}
-	}
-	if !asked {
-		return labels, nil
 	}
 	var kept, dropped []gradeLabel
 	for _, l := range code {
-		if l.Dimension == dimAIUse && s.Answers[l.AnswerIndex].Target != dimAIUse {
+		target := s.Answers[l.AnswerIndex].Target
+		offTarget := target != l.Dimension && asked[l.Dimension]
+		weak := l.Dimension == dimAIUse || l.Dimension == dimDecomposition || target == dimDecomposition
+		if offTarget && weak {
 			dropped = append(dropped, l)
 			continue
 		}

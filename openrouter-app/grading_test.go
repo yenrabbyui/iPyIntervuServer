@@ -141,7 +141,7 @@ func TestNoAICapsCodeAtCompetent(t *testing.T) {
 	}
 }
 
-func TestWithoutUnaskedAIUseKeepsOnlyTheAIQuestionsLabel(t *testing.T) {
+func TestWithoutOffTargetLabelsKeepsOnlyTheAIQuestionsLabel(t *testing.T) {
 	_, sess := d5TestState(5, modeCode)
 	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimDecomposition}
 	sess.Answers[2] = d5Answer{Mode: modeCode, Target: dimCorrectness}
@@ -158,7 +158,7 @@ func TestWithoutUnaskedAIUseKeepsOnlyTheAIQuestionsLabel(t *testing.T) {
 	if got := gradeMode(modeCode, labels[modeCode], true); got != bucketCompetent {
 		t.Fatalf("without the filter the stray AI-use labels outvote the real one: bucket = %s, want %s", got, bucketCompetent)
 	}
-	filtered, dropped := sess.withoutUnaskedAIUse(labels)
+	filtered, dropped := sess.withoutOffTargetLabels(labels)
 	if len(dropped) != 2 || dropped[0].AnswerIndex != 2 || dropped[1].AnswerIndex != 3 {
 		t.Fatalf("dropped = %+v, want the AI-use labels on answers 2 and 3", dropped)
 	}
@@ -170,15 +170,55 @@ func TestWithoutUnaskedAIUseKeepsOnlyTheAIQuestionsLabel(t *testing.T) {
 	}
 }
 
-func TestWithoutUnaskedAIUseKeepsLabelsWhenAIWasNeverAsked(t *testing.T) {
+func TestWithoutOffTargetLabelsKeepsLabelsWhenAIWasNeverAsked(t *testing.T) {
 	_, sess := d5TestState(5, modeCode)
 	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimCorrectness}
 	labels := map[string][]gradeLabel{modeCode: {
 		{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: 1},
 		{Dimension: dimAIUse, Level: levelExceptional, AnswerIndex: 1}, // the candidate raised AI use unprompted
 	}}
-	filtered, dropped := sess.withoutUnaskedAIUse(labels)
+	filtered, dropped := sess.withoutOffTargetLabels(labels)
 	if len(dropped) != 0 || len(filtered[modeCode]) != 2 {
 		t.Fatalf("with no AI-use question labelled, nothing should be dropped: dropped %+v, kept %+v", dropped, filtered[modeCode])
+	}
+}
+
+func TestWithoutOffTargetLabelsIgnoresExtrasOnThePlanningAnswerAndDecompositionElsewhere(t *testing.T) {
+	_, sess := d5TestState(5, modeCode)
+	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimDecomposition}
+	sess.Answers[2] = d5Answer{Mode: modeCode, Target: dimCorrectness}
+	sess.Answers[3] = d5Answer{Mode: modeCode, Target: dimUnderstanding}
+	sess.Answers[4] = d5Answer{Mode: modeCode, Target: dimUnderstanding}
+	labels := map[string][]gradeLabel{modeCode: {
+		{Dimension: dimDecomposition, Level: levelExceptional, AnswerIndex: 1},
+		{Dimension: dimUnderstanding, Level: levelCompetent, AnswerIndex: 1}, // the plan: no code to explain yet
+		{Dimension: dimCorrectness, Level: levelNotReady, AnswerIndex: 1},    // the plan: no code to run yet
+		{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: 2},
+		{Dimension: dimUnderstanding, Level: levelExceptional, AnswerIndex: 3},
+		{Dimension: dimDecomposition, Level: levelCompetent, AnswerIndex: 3}, // an explanation, not a plan
+		{Dimension: dimDecomposition, Level: levelCompetent, AnswerIndex: 4},
+		{Dimension: dimUnderstanding, Level: levelCompetent, AnswerIndex: 4}, // a later explanation: kept
+	}}
+	filtered, dropped := sess.withoutOffTargetLabels(labels)
+	if len(dropped) != 4 {
+		t.Fatalf("dropped %+v, want the two planning-answer extras and the two later decomposition labels", dropped)
+	}
+	for _, l := range filtered[modeCode] {
+		if l.AnswerIndex == 4 && l.Dimension == dimUnderstanding {
+			return
+		}
+	}
+	t.Fatal("a later understanding label from its own question was dropped")
+}
+
+func TestWithoutOffTargetLabelsKeepsPlanningExtrasWhenNothingElseCoversTheDimension(t *testing.T) {
+	_, sess := d5TestState(5, modeCode)
+	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimDecomposition}
+	labels := map[string][]gradeLabel{modeCode: {
+		{Dimension: dimDecomposition, Level: levelExceptional, AnswerIndex: 1},
+		{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: 1}, // the plan already contained working code
+	}}
+	if _, dropped := sess.withoutOffTargetLabels(labels); len(dropped) != 0 {
+		t.Fatalf("dropped %+v, but nothing else covers correctness", dropped)
 	}
 }

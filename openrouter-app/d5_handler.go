@@ -431,13 +431,13 @@ func d5CloseMode(p chatRunParams, sess *d5Session) {
 			}
 			log.Printf("[d5] labels session=%s mode=%s labels=%q", truncateSessionID(p.sessionID), m, strings.Join(parts, ", "))
 		}
-		labels, dropped := sess.withoutUnaskedAIUse(labels)
+		labels, dropped := sess.withoutOffTargetLabels(labels)
 		if len(dropped) > 0 {
 			var parts []string
 			for _, l := range dropped {
-				parts = append(parts, fmt.Sprintf("#%d ai_use=%s", l.AnswerIndex, l.Level))
+				parts = append(parts, fmt.Sprintf("#%d %s=%s", l.AnswerIndex, l.Dimension, l.Level))
 			}
-			log.Printf("[d5] label_filter session=%s dropped_unasked_ai_use=%q", truncateSessionID(p.sessionID), strings.Join(parts, ", "))
+			log.Printf("[d5] label_filter session=%s dropped_off_target=%q", truncateSessionID(p.sessionID), strings.Join(parts, ", "))
 		}
 		applyD5Grades(state, labels, sess.CodePasted)
 		d5FinishAssessment(state)

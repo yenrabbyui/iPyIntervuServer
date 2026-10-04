@@ -431,6 +431,17 @@ func TestD5CoachingPromptShowsFullAnswersWithTheirQuestions(t *testing.T) {
 	}
 }
 
+func TestD5CoachingPromptSaysAIUseIsExpected(t *testing.T) {
+	state, sess := d5TestState(5, modeCode)
+	askAndAnswer(state, sess, d5Move{Kind: moveCodeFollowUp, Target: dimAIUse}, "Did you use any AI tools?", "Yes, an AI assistant wrote the first version and I tested it.")
+	prompt := d5CoachingSystemPrompt(state, sess)
+	for _, want := range []string{"expected and encouraged to use AI tools", "never suggest hiding or downplaying it"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("coaching prompt missing %q", want)
+		}
+	}
+}
+
 func TestD5CoachingPromptOmitsInternalEvaluatorNotes(t *testing.T) {
 	state, sess := d5TestState(5, modeConceptual)
 	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimConceptual}, "How would you decide?", "Highest band first.")
