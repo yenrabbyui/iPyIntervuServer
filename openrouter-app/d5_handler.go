@@ -69,7 +69,7 @@ func handleD5Chat(p chatRunParams, skipPreChat bool) {
 		d5RunOpening(p, sess, "")
 		return
 	}
-	if isCoachingRequest(msg) {
+	if isMidInterviewCoachingRequest(msg) {
 		reply := d5CoachingAfterwards
 		if q := d5PendingQuestion(sess); q != "" {
 			reply += " To pick up where we left off: " + q
@@ -430,6 +430,14 @@ func d5CloseMode(p chatRunParams, sess *d5Session) {
 				parts = append(parts, fmt.Sprintf("#%d %s=%s (%s)", l.AnswerIndex, l.Dimension, l.Level, l.Source))
 			}
 			log.Printf("[d5] labels session=%s mode=%s labels=%q", truncateSessionID(p.sessionID), m, strings.Join(parts, ", "))
+		}
+		labels, dropped := sess.withoutUnaskedAIUse(labels)
+		if len(dropped) > 0 {
+			var parts []string
+			for _, l := range dropped {
+				parts = append(parts, fmt.Sprintf("#%d ai_use=%s", l.AnswerIndex, l.Level))
+			}
+			log.Printf("[d5] label_filter session=%s dropped_unasked_ai_use=%q", truncateSessionID(p.sessionID), strings.Join(parts, ", "))
 		}
 		applyD5Grades(state, labels, sess.CodePasted)
 		d5FinishAssessment(state)

@@ -304,6 +304,26 @@ func TestD5CoachingDeferredDuringInterview(t *testing.T) {
 	}
 }
 
+// An answer that mentions coaching, or code with the word in a print string, is an answer,
+// not a request: it used to be answered with "Coaching opens once the interview is finished".
+func TestD5AnswerMentioningCoachingIsStillAnAnswer(t *testing.T) {
+	for _, answer := range []string{
+		"I would keep a list of coaching sessions.",
+		"```python\nprint('Thanks for the coaching session!')\n```",
+	} {
+		c := newD5TestClient(t)
+		c.say("Nursing")
+		c.say("5")
+		reply, _ := c.say(answer)
+		if strings.HasPrefix(reply, d5CoachingAfterwards) {
+			t.Errorf("answer %q was taken for a coaching request: %q", answer, reply)
+		}
+		if got := c.state().D5.AnswerIndex; got != 1 {
+			t.Errorf("answer %q was not recorded as an answer (AnswerIndex %d)", answer, got)
+		}
+	}
+}
+
 func TestD5Week1EndsAfterConceptual(t *testing.T) {
 	c := newD5TestClient(t)
 	c.upstream.recommend = "close"

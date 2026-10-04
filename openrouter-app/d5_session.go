@@ -185,6 +185,47 @@ func (s *d5Session) labelsSnapshot() map[string][]gradeLabel {
 	return out
 }
 
+// withoutUnaskedAIUse drops the AI-use labels the Evaluator gave answers that were not
+// replies to the AI-use question (the code itself, an explanation of a line). The prompt
+// tells the Evaluator not to label a dimension an answer did not discuss, but it still
+// did, and those labels (mostly Competent or Not Ready, since the answer said nothing about
+// AI) outvoted the one label from the real AI-use question and held strong candidates'
+// Code part below Exceptional. When no answer to the AI-use question was labelled, the
+// others are kept, since they may be the only evidence. It returns the labels to grade and
+// the ones dropped.
+func (s *d5Session) withoutUnaskedAIUse(labels map[string][]gradeLabel) (map[string][]gradeLabel, []gradeLabel) {
+	code := labels[modeCode]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	asked := false
+	for _, l := range code {
+		if l.Dimension == dimAIUse && s.Answers[l.AnswerIndex].Target == dimAIUse {
+			asked = true
+			break
+		}
+	}
+	if !asked {
+		return labels, nil
+	}
+	var kept, dropped []gradeLabel
+	for _, l := range code {
+		if l.Dimension == dimAIUse && s.Answers[l.AnswerIndex].Target != dimAIUse {
+			dropped = append(dropped, l)
+			continue
+		}
+		kept = append(kept, l)
+	}
+	if len(dropped) == 0 {
+		return labels, nil
+	}
+	out := make(map[string][]gradeLabel, len(labels))
+	for mode, ls := range labels {
+		out[mode] = ls
+	}
+	out[modeCode] = kept
+	return out, dropped
+}
+
 // unlabelledAnswers lists the mode's non-vague answers whose targeted dimension has no
 // label yet.
 func (s *d5Session) unlabelledAnswers(mode string) map[int]d5Answer {

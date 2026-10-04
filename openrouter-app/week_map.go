@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 type weekSelection struct {
 	SelectedKeyConcept string
@@ -99,10 +102,46 @@ func isGreetingMessage(text string) bool {
 	return false
 }
 
+// Longest message still taken for a request for coaching. The phrase used to match
+// anywhere in any message, so a code answer with print("coaching ...") in it, or a short
+// answer about a coaching business, was taken for a request and the answer was lost.
+const (
+	coachingRequestMaxWords      = 25
+	midInterviewCoachingMaxWords = 8
+)
+
+// isCoachingRequest reports whether text asks for coaching. Code and long messages never
+// do. Use isMidInterviewCoachingRequest while the interview is still in progress.
 func isCoachingRequest(text string) bool {
 	normalized := normalizeUserInput(text)
+	if strings.Contains(normalized, "```") || len(strings.Fields(normalized)) > coachingRequestMaxWords || d5LooksLikeCodeSubmission(text) {
+		return false
+	}
 	return strings.Contains(normalized, "coaching") ||
 		strings.Contains(normalized, "coach mode") ||
 		strings.Contains(normalized, "feedback on my assessment") ||
 		strings.Contains(normalized, "give me feedback")
+}
+
+// requestOpening matches how a request for coaching begins ("could I get some coaching",
+// "I'd like coaching", "please"), which an answer that merely mentions coaching
+// does not.
+var requestOpening = regexp.MustCompile(`^(?:(?:hi|hey|ok|okay|thanks|thank you)[,.! ]+)*(?:please\b|(?:can|could|may|might) (?:i|we)\b|i(?:'d| would) like\b|i want\b|i need\b|let'?s\b|switch\b|give me\b)`)
+
+// bareCoachingWord matches a message that is only the word "coaching".
+var bareCoachingWord = regexp.MustCompile(`^coaching(?: please| now)?[.!?]*$`)
+
+// isMidInterviewCoachingRequest is the stricter test for a message sent during the
+// interview, where an answer that merely mentions coaching must not be taken for a
+// request: it must be short and either name coach mode or open like a request.
+func isMidInterviewCoachingRequest(text string) bool {
+	if len(strings.Fields(text)) > midInterviewCoachingMaxWords || !isCoachingRequest(text) {
+		return false
+	}
+	normalized := normalizeUserInput(text)
+	if bareCoachingWord.MatchString(normalized) {
+		return true
+	}
+	return strings.Contains(normalized, "coach mode") || strings.Contains(normalized, "feedback on my assessment") ||
+		strings.Contains(normalized, "give me feedback") || requestOpening.MatchString(normalized)
 }

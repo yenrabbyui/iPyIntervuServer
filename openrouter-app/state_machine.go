@@ -103,7 +103,7 @@ func applyPreChatUserUpdate(state *AgentSessionState, userMessage string) {
 			initializePersonasAndConcepts(state)
 		}
 	case phaseAssessmentInProgress:
-		if isCoachingRequest(userMessage) {
+		if isMidInterviewCoachingRequest(userMessage) {
 			state.CoachingRequested = true
 			state.ActiveMode = modeCoaching
 			state.CoachingEnteredBeforeResults = true

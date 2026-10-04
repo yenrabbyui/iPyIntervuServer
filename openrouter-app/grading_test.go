@@ -140,3 +140,45 @@ func TestNoAICapsCodeAtCompetent(t *testing.T) {
 		t.Fatalf("all Exceptional but no AI use: got %q, want Competent", got)
 	}
 }
+
+func TestWithoutUnaskedAIUseKeepsOnlyTheAIQuestionsLabel(t *testing.T) {
+	_, sess := d5TestState(5, modeCode)
+	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimDecomposition}
+	sess.Answers[2] = d5Answer{Mode: modeCode, Target: dimCorrectness}
+	sess.Answers[3] = d5Answer{Mode: modeCode, Target: dimUnderstanding}
+	sess.Answers[4] = d5Answer{Mode: modeCode, Target: dimAIUse}
+	labels := map[string][]gradeLabel{modeCode: {
+		{Dimension: dimDecomposition, Level: levelExceptional, AnswerIndex: 1},
+		{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: 2},
+		{Dimension: dimAIUse, Level: levelCompetent, AnswerIndex: 2}, // the code answer, no AI in it
+		{Dimension: dimUnderstanding, Level: levelExceptional, AnswerIndex: 3},
+		{Dimension: dimAIUse, Level: levelCompetent, AnswerIndex: 3}, // an explanation of a line
+		{Dimension: dimAIUse, Level: levelExceptional, AnswerIndex: 4},
+	}}
+	if got := gradeMode(modeCode, labels[modeCode], true); got != bucketCompetent {
+		t.Fatalf("without the filter the stray AI-use labels outvote the real one: bucket = %s, want %s", got, bucketCompetent)
+	}
+	filtered, dropped := sess.withoutUnaskedAIUse(labels)
+	if len(dropped) != 2 || dropped[0].AnswerIndex != 2 || dropped[1].AnswerIndex != 3 {
+		t.Fatalf("dropped = %+v, want the AI-use labels on answers 2 and 3", dropped)
+	}
+	if got := gradeMode(modeCode, filtered[modeCode], true); got != bucketExceptional {
+		t.Fatalf("bucket after the filter = %s, want %s", got, bucketExceptional)
+	}
+	if len(labels[modeCode]) != 6 {
+		t.Fatal("the filter changed the labels it was given")
+	}
+}
+
+func TestWithoutUnaskedAIUseKeepsLabelsWhenAIWasNeverAsked(t *testing.T) {
+	_, sess := d5TestState(5, modeCode)
+	sess.Answers[1] = d5Answer{Mode: modeCode, Target: dimCorrectness}
+	labels := map[string][]gradeLabel{modeCode: {
+		{Dimension: dimCorrectness, Level: levelExceptional, AnswerIndex: 1},
+		{Dimension: dimAIUse, Level: levelExceptional, AnswerIndex: 1}, // the candidate raised AI use unprompted
+	}}
+	filtered, dropped := sess.withoutUnaskedAIUse(labels)
+	if len(dropped) != 0 || len(filtered[modeCode]) != 2 {
+		t.Fatalf("with no AI-use question labelled, nothing should be dropped: dropped %+v, kept %+v", dropped, filtered[modeCode])
+	}
+}
