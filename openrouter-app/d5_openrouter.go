@@ -30,6 +30,7 @@ const (
 	d5InterviewerRetryWindow       = 4 * time.Second
 	d5EvaluatorTimeout             = 30 * time.Second
 	d5LevelsTimeout                = 5 * time.Second
+	d5BugStrategyTimeout           = 8 * time.Second // reads the whole Bug conversation
 )
 
 // d5HTTPClient has no client-wide timeout: each call carries its own context deadline.

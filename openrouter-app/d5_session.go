@@ -231,6 +231,19 @@ func (s *d5Session) withoutOffTargetLabels(labels map[string][]gradeLabel) (map[
 	return out, dropped
 }
 
+// lastAnswerIndex is the highest answer index recorded for the mode (0 when none).
+func (s *d5Session) lastAnswerIndex(mode string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	last := 0
+	for idx, a := range s.Answers {
+		if a.Mode == mode && idx > last {
+			last = idx
+		}
+	}
+	return last
+}
+
 // unlabelledAnswers lists the mode's non-vague answers whose targeted dimension has no
 // label yet.
 func (s *d5Session) unlabelledAnswers(mode string) map[int]d5Answer {

@@ -237,3 +237,39 @@ func TestDefectLooksBad(t *testing.T) {
 		}
 	}
 }
+
+func TestBugStrategyMessagesRateTheWholeConversation(t *testing.T) {
+	state, sess := d5TestState(5, modeBug)
+	sess.BugDefect = "line 2 uses or instead of and"
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimStrategy}, "Where would you start?", "Reproduce with 1 hour sitting and 0 meetings, then check each clause.")
+	askAndAnswer(state, sess, d5Move{Kind: moveFollowUp, Target: dimStrategy}, "Which input made it obvious?", "1 and 0: only one clause is true.")
+	msgs := d5BugStrategyMessages(state, sess)
+	if len(msgs) != 2 {
+		t.Fatalf("want a system and a user message, got %d", len(msgs))
+	}
+	for _, want := range []string{"whole", "does not cancel", "not_ready, competent or exceptional", "line 2 uses or instead of and", "never mark an answer down for not finding the defect", "Exceptional"} {
+		if !strings.Contains(msgs[0].Content, want) {
+			t.Errorf("system prompt lacks %q:\n%s", want, msgs[0].Content)
+		}
+	}
+	for _, want := range []string{"Where would you start?", "Reproduce with 1 hour sitting", "Which input made it obvious?", "1 and 0: only one clause"} {
+		if !strings.Contains(msgs[1].Content, want) {
+			t.Errorf("transcript lacks %q:\n%s", want, msgs[1].Content)
+		}
+	}
+}
+
+func TestLastAnswerIndex(t *testing.T) {
+	state, sess := d5TestState(5, modeBug)
+	if got := sess.lastAnswerIndex(modeBug); got != 0 {
+		t.Fatalf("no answers: got %d", got)
+	}
+	askAndAnswer(state, sess, d5Move{Kind: moveOpenMode, Target: dimStrategy}, "Where would you start?", "Reproduce it.")
+	askAndAnswer(state, sess, d5Move{Kind: moveFollowUp, Target: dimStrategy}, "Which input?", "1 and 0.")
+	if got := sess.lastAnswerIndex(modeBug); got != 2 {
+		t.Fatalf("two Bug answers: got %d", got)
+	}
+	if got := sess.lastAnswerIndex(modeCode); got != 0 {
+		t.Fatalf("no Code answers: got %d", got)
+	}
+}

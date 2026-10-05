@@ -502,6 +502,27 @@ Rubric:
 	}
 }
 
+// d5BugStrategyMessages builds the one call that rates the whole Bug part. The Bug rubric
+// has a single dimension whose four aspects (approach, hypotheses, narrowing down, link to
+// the concept) only show across the conversation, and each follow-up question is narrow, so
+// per-answer labels held strong debuggers at Competent: no single answer shows a ranked list
+// of causes and why each check comes first.
+func d5BugStrategyMessages(state *AgentSessionState, sess *d5Session) []chatMessage {
+	var b strings.Builder
+	b.WriteString("Rate a candidate's debugging strategy across the whole Bug-hunting part of an interview, against the rubric below.\n")
+	b.WriteString("The rubric describes the strategy shown over the whole conversation. The interviewer asks narrow follow-up questions, so no single answer shows everything: read all of the candidate's answers together and rate the strategy they showed as a whole. A later short or narrow answer does not cancel what an earlier one showed.\n")
+	b.WriteString("Reply with exactly one word and nothing else: not_ready, competent or exceptional.\n\n")
+	if sess.BugDefect != "" {
+		fmt.Fprintf(&b, "The snippet's deliberate defect, for context only: %s\nRate the strategy itself. A sound, systematic strategy is competent or better even if it has not reached this defect yet; never mark an answer down for not finding the defect.\n\n", sess.BugDefect)
+	}
+	b.WriteString(d5Calibration(state))
+	fmt.Fprintf(&b, "\n\nRubric:\n%s", d5RubricForMode(state.CurrentWeekNumber, modeBug))
+	return []chatMessage{
+		{Role: "system", Content: b.String()},
+		{Role: "user", Content: "Bug-hunting part of the interview:\n\n" + transcriptText(sess, modeBug)},
+	}
+}
+
 func modeTitle(mode string) string {
 	switch mode {
 	case modeConceptual:

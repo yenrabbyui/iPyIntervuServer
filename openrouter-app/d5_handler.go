@@ -11,7 +11,7 @@ import (
 
 const (
 	d5BriefWait     = 2 * time.Second
-	d5LabelJobsWait = 5 * time.Second
+	d5LabelJobsWait = 9 * time.Second
 )
 
 // handleD5Chat runs one /api/chat turn on the D5 engine (D5-interviewer-evaluator-design.md).
@@ -421,6 +421,23 @@ func d5CloseMode(p chatRunParams, sess *d5Session) {
 		}()
 	}
 
+	// The Bug part is rated once from its whole conversation (see d5BugStrategyMessages).
+	// The per-answer labels still run and are the fallback if this call fails.
+	var bugLabel chan []gradeLabel
+	if final && mode == modeBug {
+		bugLabel = make(chan []gradeLabel, 1)
+		idx := sess.lastAnswerIndex(modeBug)
+		req := levelsRequest(p.req.Model, d5BugStrategyMessages(state, sess))
+		sess.labelJobs.Add(1)
+		go func() {
+			defer sess.labelJobs.Done()
+			res, err := runBackgroundCall(p.apiKey, p.sessionID, req, d5BugStrategyTimeout, 1)
+			labels := parseTargetLevel(res.Content, modeBug, dimStrategy, idx)
+			log.Printf("[d5] bug_strategy_done session=%s ms=%d labels=%d err=%v", truncateSessionID(p.sessionID), res.Elapsed.Milliseconds(), len(labels), err)
+			bugLabel <- withSource(labels, labelSourceHolistic)
+		}()
+	}
+
 	if final {
 		d5WaitLabelJobs(p, sess)
 		labels := sess.labelsSnapshot()
@@ -430,6 +447,16 @@ func d5CloseMode(p chatRunParams, sess *d5Session) {
 				parts = append(parts, fmt.Sprintf("#%d %s=%s (%s)", l.AnswerIndex, l.Dimension, l.Level, l.Source))
 			}
 			log.Printf("[d5] labels session=%s mode=%s labels=%q", truncateSessionID(p.sessionID), m, strings.Join(parts, ", "))
+		}
+		if bugLabel != nil {
+			select {
+			case l := <-bugLabel:
+				if len(l) > 0 {
+					log.Printf("[d5] bug_strategy session=%s level=%s per_answer_labels=%d", truncateSessionID(p.sessionID), l[0].Level, len(labels[modeBug]))
+					labels[modeBug] = l
+				}
+			default:
+			}
 		}
 		labels, dropped := sess.withoutOffTargetLabels(labels)
 		if len(dropped) > 0 {

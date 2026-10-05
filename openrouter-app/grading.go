@@ -40,6 +40,7 @@ const (
 	labelSourceLevels    = "levels"    // levels-only call at mode close
 	labelSourceEvaluator = "evaluator" // Evaluator brief
 	labelSourceVague     = "vague"     // set by Go for a vague answer
+	labelSourceHolistic  = "holistic"  // one call over the whole Bug part, which replaces its per-answer labels
 )
 
 func levelRank(level string) int {
